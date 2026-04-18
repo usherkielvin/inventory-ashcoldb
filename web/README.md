@@ -13,7 +13,8 @@ This folder is **in addition to** the professor-required **SSMS + SQL Server** s
    ```
 
    You should see **`OK — connected`**. If **`FAILED`**, follow the printed checklist (TCP port, service, Windows user).
-3. **Match SSMS** — In SSMS, try server **`127.0.0.1,1433`** (comma + port). If that fails, **`SQL_PORT`** in `.env` is wrong: open **SQL Server Configuration Manager** → **TCP/IP** → **IPAll** for **your** instance, set **`SQL_PORT`** to that number, **restart SQL Server**, run **`npm run test:sql`** again.
+3. **Match SSMS (TCP port)** — In SSMS, try **`127.0.0.1,1433`** (comma + port). If that fails, **`SQL_PORT`** in `.env` is wrong: open **SQL Server Configuration Manager** → **TCP/IP** → **IPAll** for **your** instance, set **`SQL_PORT`** to that number, **restart SQL Server**, run **`npm run test:sql`** again.  
+   For **Windows auth + this API**, prefer **`SQL_SERVER=localhost`** with **`SQL_PORT`** (see [Windows authentication (ODBC + msnodesqlv8)](#windows-authentication-odbc--msnodesqlv8)); using **`127.0.0.1`** with integrated security often triggers **SSPI / “out of sequence”** errors with the ODBC driver.
 4. **Then** run **`npm run dev`** and open **`http://localhost:3001/api/health`**.
 
 **Nothing shows in the browser?** Fix **`npm run test:sql`** first, then the table below.
@@ -24,7 +25,10 @@ This folder is **in addition to** the professor-required **SSMS + SQL Server** s
 |--------|----------------|
 | Blank page / “Checking…” forever | Open **http://localhost:3001/api/health** — if that fails, the API is down or SQL is unreachable. |
 | Health shows `"ok": false` or **`ETIMEOUT` / `Failed to connect ... SQLEXPRESS01`** | Named instance needs **SQL Server Browser** *or* an explicit **`SQL_PORT`** from **Configuration Manager → TCP/IP → IPAll** for **that** instance. Set **`SQL_PORT`** in `server/.env`. See **`server/.env.example`**. |
-| **`ESOCKET` / `Failed to connect ... :1433`** | (a) **Wrong port or service down** — in PowerShell run `Get-NetTCPConnection -LocalPort 1433 -State Listen` (or `netstat -ano` and find `1433`). The port must match **IPAll** for **SQL Server (SQLEXPRESS01)** after **TCP/IP Enabled** + **service restart**. (b) **IPv6** — use **`SQL_SERVER=127.0.0.1`** in `server/.env`, or leave `localhost` (the API uses `127.0.0.1` when `SQL_PORT` is set and `SQL_PREFER_IPV6` is not true). |
+| **`ESOCKET` / `Failed to connect ... :1433`** | (a) **Wrong port or service down** — run **`netstat -ano`** and confirm a **`LISTENING`** row on your **`SQL_PORT`** (often **1433**). The port must match **IPAll** for your instance after **TCP/IP Enabled** + **service restart** (Admin PowerShell: **`Restart-Service -Name 'MSSQL$YOURINSTANCE'`** — use **single quotes** so **`$`** is not expanded). (b) **SQL login (`SQL_USE_WINDOWS_AUTH=false`)** — the default **tedious** driver maps **`localhost` → `127.0.0.1`** when **`SQL_PORT`** is set (IPv6 workaround). (c) **Windows auth** — keep **`SQL_SERVER=localhost`** (do not force **`127.0.0.1`**); see the **ODBC + msnodesqlv8** section below. |
+| **`Data source name not found`** / ODBC driver errors | Install **Microsoft ODBC Driver 18 for SQL Server** (or 17). Verify with `Get-OdbcDriver` (PowerShell). Optionally set **`SQL_ODBC_DRIVER`** in `server/.env` to the exact driver name. |
+| **`Login failed for user ''`** (with **`127.0.0.1`** + Windows auth) | You hit the **tedious** path (integrated security is not supported). Ensure **`SQL_USE_WINDOWS_AUTH=true`** and this repo’s **`msnodesqlv8`** setup; use **`localhost`** + **`SQL_PORT`** per below. |
+| **`Cannot generate SSPI context`** / **verification is out of sequence** | Common when using **`127.0.0.1`** + **Trusted Connection** over ODBC. Use **`SQL_SERVER=localhost`** + **`SQL_PORT`**, or use a **SQL login** instead. |
 | Health `ok` but table empty | In SSMS run `SELECT COUNT(*) FROM dbo.vw_ActiveProductCatalog`. If **0**, rerun **seeds** after **triggers**, or check `Products.IsDeleted`. |
 | `EADDRINUSE` on 3001 | Another Node/Express is still bound to **3001**. **Option A:** from repo root run **`web/scripts/free-port-api.ps1`** (PowerShell). **Option B:** Task Manager → end extra **Node** processes. **Option C:** set **`PORT=3002`** in `server/.env`, add **`web/client/.env`** with **`VITE_API_PROXY_TARGET=http://localhost:3002`**, restart `npm run dev`. |
 | Vite on **5175/5176** | Ports **5174–5175** busy; UI URL is whatever Vite prints — proxy still works if API is up. |
@@ -36,6 +40,70 @@ This folder is **in addition to** the professor-required **SSMS + SQL Server** s
 - SQL Server with **`AshcolInventory`** deployed (DDL → views → triggers → seeds in SSMS)
 - Either **Windows Authentication** (same Windows user as runs Node — `SQL_USE_WINDOWS_AUTH=true` in `server/.env`) **or** a **SQL login** with `SELECT` on `dbo.vw_ActiveProductCatalog`
 
+## Windows authentication (ODBC + msnodesqlv8)
+
+Teammates on **Windows** using **`SQL_USE_WINDOWS_AUTH=true`** should read this section. The default **`mssql`** driver (**tedious**) **does not** support **Windows / Trusted Connection** logins ([`mssql` README](https://github.com/tediousjs/node-mssql/blob/master/README.md) — tedious authentication notes). This project therefore uses:
+
+- **`mssql/msnodesqlv8`** (from `msnodesqlv8` on npm) — talks to SQL Server through **ODBC**
+- An explicit ODBC connection string built in code, using **`ODBC Driver 18 for SQL Server`** by default (not “SQL Server Native Client 11.0”, which is often missing)
+
+### 1) Install the Microsoft ODBC Driver for SQL Server
+
+On Windows, install **ODBC Driver 18 for SQL Server** (or **17**) from Microsoft. It is **usually already present** if SSMS or SQL Server tools were installed.
+
+Check installed drivers (PowerShell):
+
+```powershell
+Get-OdbcDriver | Where-Object Name -Like '*SQL Server*' | Format-Table Name, Platform -AutoSize
+```
+
+You should see **`ODBC Driver 18 for SQL Server`** (64-bit). If not, install the driver, then rerun:
+
+```powershell
+cd path\to\Inventory Database\web\server
+npm install
+```
+
+### 2) `npm install` / native module notes
+
+`msnodesqlv8` includes a **native** addon. Normally `npm install` downloads a **prebuilt binary**. If install fails with compile errors, install **Visual Studio Build Tools** (Desktop development with C++ / MSVC) and retry.
+
+### 3) `.env` values that work well together
+
+**Recommended (TCP + Windows auth):** explicit port from **SQL Server Configuration Manager → TCP/IP → IPAll**, same port you use in SSMS as `host,port`:
+
+```env
+SQL_USE_WINDOWS_AUTH=true
+SQL_SERVER=localhost
+SQL_PORT=1433
+SQL_DATABASE=AshcolInventory
+SQL_ENCRYPT=true
+SQL_TRUST_SERVER_CERTIFICATE=true
+```
+
+Why **`localhost`** instead of **`127.0.0.1`** here: with **Trusted_Connection** over ODBC, **`127.0.0.1`** often causes **SSPI / “out of sequence”** errors. **`localhost`** avoids that on typical Windows setups.
+
+Optional: if your ODBC driver name differs, set exactly what `Get-OdbcDriver` prints:
+
+```env
+SQL_ODBC_DRIVER=ODBC Driver 18 for SQL Server
+```
+
+**Alternative (SSMS “Server name” string):** set **`SQL_SERVER_FULL=localhost\INSTANCE`** and omit **`SQL_PORT`**. That path normally requires **SQL Server Browser** running unless you only rely on shared-memory/local (not suitable for remote teammates).
+
+### 4) Verify from Node (before `npm run dev`)
+
+```powershell
+cd path\to\Inventory Database\web
+npm run test:sql
+```
+
+Expect **`OK — connected`**. Resolved JSON should include **`"driver":"msnodesqlv8"`** when Windows auth is enabled.
+
+### 5) SQL login mode (no Windows auth)
+
+If **`SQL_USE_WINDOWS_AUTH=false`**, the API uses the default **`mssql`** (**tedious**) driver with **`SQL_USER` / `SQL_PASSWORD`**. That path does **not** use ODBC for authentication. For **`localhost` + SQL_PORT**, the config may still map **`localhost` → `127.0.0.1`** to reduce IPv6 issues.
+
 ## Environment (`web/server/.env`)
 
 From repo root, copy the example if needed:
@@ -45,20 +113,14 @@ Set-Location "D:\usher\Documents\Capstone Project\Inventory Database\web\server"
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-For **`localhost\SQLEXPRESS01`** + **Windows auth** (typical class setup), **`server/.env`** should include:
+For **Windows auth** + **TCP** (recommended for Node + teammates), use **`SQL_SERVER=localhost`** and **`SQL_PORT`** from **Configuration Manager → IPAll** (see section above).
+
+For **SQL login**, set `SQL_USE_WINDOWS_AUTH=false`, `SQL_USER`, `SQL_PASSWORD`, and `SQL_PORT` if required.
 
 ```env
-SQL_USE_WINDOWS_AUTH=true
-SQL_SERVER=localhost\SQLEXPRESS01
-SQL_PORT=
-SQL_DATABASE=AshcolInventory
-SQL_ENCRYPT=true
-SQL_TRUST_SERVER_CERTIFICATE=true
 PORT=3001
 CORS_ORIGIN=http://localhost:5174
 ```
-
-Use **SQL login** instead: set `SQL_USE_WINDOWS_AUTH=false`, `SQL_USER`, `SQL_PASSWORD`, and `SQL_PORT` if required.
 
 ---
 
