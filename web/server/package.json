@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test:sql": "node scripts/test-sql.mjs"
+    "test:sql": "node scripts/test-sql.mjs",
+    "test:api": "node scripts/test-api-contracts.mjs"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -6,15 +6,217 @@
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  background: #0c1222;
+  font-family: Inter, 'Segoe UI', system-ui, sans-serif;
+  background: radial-gradient(circle at top, #101938, #090f1f 55%);
   color: #e8edf7;
   line-height: 1.5;
   min-height: 100vh;
 }
 
 #root {
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
+  padding: 1.25rem 1rem 3rem;
+}
+
+.app {
+  display: grid;
+  gap: 1rem;
+}
+
+.card {
+  background: rgba(17, 26, 46, 0.88);
+  border: 1px solid #243049;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  color: #10b981;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.muted {
+  color: #94a3b8;
+}
+
+.error {
+  color: #fca5a5;
+}
+
+.success {
+  color: #6ee7b7;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.75rem;
+  margin: 0.85rem 0 1rem;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+label {
+  display: grid;
+  gap: 0.28rem;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  background: #0f1729;
+  color: #e8edf7;
+  border: 1px solid #2b3959;
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  background: #2563eb;
+  color: white;
+  font-weight: 600;
+}
+
+.btn:hover {
+  background: #1d4ed8;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid #37517e;
+  color: #cbd5e1;
+}
+
+.btn.small {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid #243049;
+  border-radius: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+th,
+td {
+  padding: 0.58rem 0.65rem;
+  border-top: 1px solid #243049;
+  text-align: left;
+}
+
+thead th {
+  border-top: none;
+  background: #162036;
+}
+
+.head-btn {
+  border: none;
+  background: none;
+  color: #dbeafe;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0;
+}
+
+.head-btn:hover {
+  text-decoration: underline;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.pagination {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pager-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.grid-2 {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.form {
+  display: grid;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+
+.health-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+}
+
+h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+}
+
+h3 {
+  margin: 0.8rem 0 0.45rem;
+  font-size: 0.95rem;
 }

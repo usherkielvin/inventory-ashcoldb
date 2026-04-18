@@ -134,7 +134,7 @@ npm run bootstrap
 npm run dev
 ```
 
-- API: **http://localhost:3001** — open **http://localhost:3001/api/health** (expect `"ok": true`).
+- API: **http://localhost:3001** — open **http://localhost:3001/api/health** (expect `data.ok = true`).
 - UI: **http://localhost:5174** (Vite proxies **`/api`** to port 3001).
 
 Stop both with **Ctrl+C** in that terminal.
@@ -172,8 +172,51 @@ cd "D:\usher\Documents\Capstone Project\Inventory Database\web"
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | Confirms DB connection and returns current database name |
-| GET | `/api/products` | Rows from `dbo.vw_ActiveProductCatalog` |
+| GET | `/api/health` | Service + DB health. Returns envelope: `{ data: { ok, database, serverVersion }, error, meta }` |
+| GET | `/api/lookups` | Category, supplier, and location lookups for forms/filters |
+| GET | `/api/products` | Paginated product list with filtering (`q`, `categoryId`, `supplierId`) and sorting (`sortBy`, `sortDir`) |
+| GET | `/api/products/:productId` | Product details + `stockByLocation` |
+| POST | `/api/products` | Create product (write flow) |
+| POST | `/api/stock-adjustments` | Insert stock movement adjustment (write flow) |
+
+### API contract checks
+
+Run while API is already up:
+
+```powershell
+cd "D:\usher\Documents\Capstone Project\Inventory Database\web\server"
+npm run test:api
+```
+
+Run SQL smoke test:
+
+```powershell
+cd "D:\usher\Documents\Capstone Project\Inventory Database\web"
+npm run test:sql
+```
+
+## Feature walkthrough (3–5 minute demo)
+
+1. Open **`/api/health`** to show DB connectivity.
+2. Open UI and show:
+   - Search by SKU/Name
+   - Filter by category/supplier
+   - Sorting and pagination
+3. Click **Details** on a product to show stock by location.
+4. Create a new product in **Inventory actions**.
+5. Post a stock adjustment and re-open Details to show updated on-hand quantity.
+
+## Known limitations
+
+- No authentication/authorization yet (single shared operator view).
+- Stock adjustments are manual and do not yet require approval workflow.
+- API tests are smoke/contract-level (not full integration suite with isolated DB fixtures).
+
+## Next improvements
+
+- Add role-based auth (admin vs clerk vs viewer).
+- Add edit/deactivate product workflows and audit history screens.
+- Add stronger automated tests (API integration + UI interaction tests).
 
 ## Production build (client only)
 

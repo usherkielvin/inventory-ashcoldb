@@ -51,47 +51,341 @@ async function getPool() {
   return pool
 }
 
+function asInt(value) {
+  if (value === undefined || value === null || value === '') return undefined
+  const n = Number(value)
+  if (!Number.isInteger(n)) return undefined
+  return n
+}
+
+function asDecimal(value) {
+  if (value === undefined || value === null || value === '') return undefined
+  const n = Number(value)
+  if (!Number.isFinite(n)) return undefined
+  return n
+}
+
+function asNonEmptyString(value) {
+  if (typeof value !== 'string') return undefined
+  const s = value.trim()
+  return s.length > 0 ? s : undefined
+}
+
+function envelope({ data = null, error = null, meta = {} } = {}) {
+  return { data, error, meta }
+}
+
+function normalizePage(query) {
+  const pageRaw = asInt(query.page) ?? 1
+  const pageSizeRaw = asInt(query.pageSize) ?? 10
+  const page = Math.max(1, pageRaw)
+  const pageSize = Math.min(50, Math.max(1, pageSizeRaw))
+  return { page, pageSize, offset: (page - 1) * pageSize }
+}
+
 app.get('/api/health', async (req, res) => {
   try {
     const p = await getPool()
     const result = await p.request().query('SELECT DB_NAME() AS DbName, @@VERSION AS Version')
     const row = result.recordset[0]
-    res.json({
-      ok: true,
-      database: row?.DbName,
-      serverVersion: typeof row?.Version === 'string' ? row.Version.split('\n')[0] : row?.Version,
-    })
+    res.json(
+      envelope({
+        data: {
+          ok: true,
+          database: row?.DbName,
+          serverVersion: typeof row?.Version === 'string' ? row.Version.split('\n')[0] : row?.Version,
+        },
+      }),
+    )
   } catch (e) {
     console.error(e)
     res.status(503).json({
-      ok: false,
-      error: String(e.message || e),
-      hint: 'Run from web/server: npm run test:sql — then match SQL_PORT to IPAll and restart SQL Server service.',
+      data: { ok: false },
+      error: {
+        message: String(e.message || e),
+        hint: 'Run from web/server: npm run test:sql — then match SQL_PORT to IPAll and restart SQL Server service.',
+      },
+      meta: {},
     })
+  }
+})
+
+app.get('/api/lookups', async (req, res) => {
+  try {
+    const p = await getPool()
+    const categories = await p.request().query(`
+      SELECT CategoryId, Name
+      FROM dbo.ProductCategories
+      WHERE IsDeleted = 0
+      ORDER BY Name
+    `)
+    const suppliers = await p.request().query(`
+      SELECT SupplierId, Name
+      FROM dbo.Suppliers
+      WHERE IsDeleted = 0
+      ORDER BY Name
+    `)
+    const locations = await p.request().query(`
+      SELECT LocationId, Code, Name, LocationType
+      FROM dbo.Locations
+      WHERE IsDeleted = 0 AND IsActive = 1
+      ORDER BY Name
+    `)
+    res.json(
+      envelope({
+        data: {
+          categories: categories.recordset,
+          suppliers: suppliers.recordset,
+          locations: locations.recordset,
+        },
+      }),
+    )
+  } catch (e) {
+    console.error(e)
+    res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
   }
 })
 
 app.get('/api/products', async (req, res) => {
   try {
+    const q = asNonEmptyString(req.query.q)
+    const categoryId = asInt(req.query.categoryId)
+    const supplierId = asInt(req.query.supplierId)
+    const { page, pageSize, offset } = normalizePage(req.query)
+    const sortByRaw = asNonEmptyString(req.query.sortBy) || 'Sku'
+    const sortDirRaw = (asNonEmptyString(req.query.sortDir) || 'asc').toLowerCase()
+
+    const sortMap = {
+      sku: 'Sku',
+      name: 'Name',
+      category: 'CategoryName',
+      supplier: 'SupplierName',
+      price: 'ListPrice',
+      reorder: 'ReorderLevel',
+    }
+    const sortBy = sortMap[sortByRaw.toLowerCase()] || 'Sku'
+    const sortDir = sortDirRaw === 'desc' ? 'DESC' : 'ASC'
+
     const p = await getPool()
-    const result = await p.request().query(`
-      SELECT
-        ProductId,
-        Sku,
-        Name,
-        UnitOfMeasure,
-        UnitCost,
-        ListPrice,
-        ReorderLevel,
-        CategoryName,
-        SupplierName
+    const request = p.request()
+    request.input('q', sql.NVarChar(200), q || null)
+    request.input('categoryId', sql.Int, categoryId || null)
+    request.input('supplierId', sql.Int, supplierId || null)
+    request.input('offset', sql.Int, offset)
+    request.input('pageSize', sql.Int, pageSize)
+
+    const result = await request.query(`
+      ;WITH filtered AS (
+        SELECT
+          ProductId,
+          Sku,
+          Name,
+          UnitOfMeasure,
+          UnitCost,
+          ListPrice,
+          ReorderLevel,
+          CategoryName,
+          SupplierName
+        FROM dbo.vw_ActiveProductCatalog
+        WHERE
+          (@q IS NULL OR Sku LIKE CONCAT('%', @q, '%') OR Name LIKE CONCAT('%', @q, '%'))
+          AND (@categoryId IS NULL OR EXISTS (
+            SELECT 1 FROM dbo.Products p
+            WHERE p.ProductId = vw_ActiveProductCatalog.ProductId
+              AND p.CategoryId = @categoryId
+          ))
+          AND (@supplierId IS NULL OR EXISTS (
+            SELECT 1 FROM dbo.Products p
+            WHERE p.ProductId = vw_ActiveProductCatalog.ProductId
+              AND p.SupplierId = @supplierId
+          ))
+      )
+      SELECT *
+      FROM filtered
+      ORDER BY ${sortBy} ${sortDir}, ProductId ASC
+      OFFSET @offset ROWS
+      FETCH NEXT @pageSize ROWS ONLY;
+
+      SELECT COUNT(*) AS TotalCount
       FROM dbo.vw_ActiveProductCatalog
-      ORDER BY Sku
+      WHERE
+        (@q IS NULL OR Sku LIKE CONCAT('%', @q, '%') OR Name LIKE CONCAT('%', @q, '%'))
+        AND (@categoryId IS NULL OR EXISTS (
+          SELECT 1 FROM dbo.Products p
+          WHERE p.ProductId = vw_ActiveProductCatalog.ProductId
+            AND p.CategoryId = @categoryId
+        ))
+        AND (@supplierId IS NULL OR EXISTS (
+          SELECT 1 FROM dbo.Products p
+          WHERE p.ProductId = vw_ActiveProductCatalog.ProductId
+            AND p.SupplierId = @supplierId
+        ));
     `)
-    res.json({ data: result.recordset })
+    const rows = result.recordsets[0] || []
+    const total = Number(result.recordsets[1]?.[0]?.TotalCount || 0)
+    res.json(
+      envelope({
+        data: rows,
+        meta: {
+          page,
+          pageSize,
+          total,
+          totalPages: Math.max(1, Math.ceil(total / pageSize)),
+          sortBy,
+          sortDir: sortDir.toLowerCase(),
+          filters: { q: q || '', categoryId: categoryId || null, supplierId: supplierId || null },
+        },
+      }),
+    )
   } catch (e) {
     console.error(e)
-    res.status(500).json({ error: String(e.message || e) })
+    res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.get('/api/products/:productId', async (req, res) => {
+  try {
+    const productId = asInt(req.params.productId)
+    if (!productId) {
+      return res.status(400).json(envelope({ error: { message: 'Invalid productId' } }))
+    }
+    const p = await getPool()
+    const reqSql = p.request()
+    reqSql.input('productId', sql.Int, productId)
+    const result = await reqSql.query(`
+      SELECT
+        p.ProductId,
+        p.Sku,
+        p.Name,
+        p.Description,
+        p.UnitOfMeasure,
+        p.UnitCost,
+        p.ListPrice,
+        p.ReorderLevel,
+        c.Name AS CategoryName,
+        s.Name AS SupplierName
+      FROM dbo.Products p
+      INNER JOIN dbo.ProductCategories c ON c.CategoryId = p.CategoryId AND c.IsDeleted = 0
+      LEFT JOIN dbo.Suppliers s ON s.SupplierId = p.SupplierId AND s.IsDeleted = 0
+      WHERE p.ProductId = @productId
+        AND p.IsDeleted = 0;
+
+      SELECT
+        l.LocationId,
+        l.Code,
+        l.Name,
+        l.LocationType,
+        ISNULL(sl.QuantityOnHand, 0) AS QuantityOnHand
+      FROM dbo.Locations l
+      LEFT JOIN dbo.StockLevels sl
+        ON sl.LocationId = l.LocationId
+        AND sl.ProductId = @productId
+      WHERE l.IsDeleted = 0
+      ORDER BY l.Name;
+    `)
+    const product = result.recordsets[0]?.[0]
+    if (!product) {
+      return res.status(404).json(envelope({ error: { message: 'Product not found' } }))
+    }
+    return res.json(
+      envelope({
+        data: {
+          ...product,
+          stockByLocation: result.recordsets[1] || [],
+        },
+      }),
+    )
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.post('/api/products', async (req, res) => {
+  try {
+    const payload = req.body || {}
+    const sku = asNonEmptyString(payload.sku)
+    const name = asNonEmptyString(payload.name)
+    const categoryId = asInt(payload.categoryId)
+    const supplierId = asInt(payload.supplierId)
+    const unitOfMeasure = asNonEmptyString(payload.unitOfMeasure) || 'PCS'
+    const unitCost = asDecimal(payload.unitCost) ?? 0
+    const listPrice = asDecimal(payload.listPrice) ?? 0
+    const reorderLevel = asInt(payload.reorderLevel) ?? 0
+    const description = asNonEmptyString(payload.description) || null
+
+    if (!sku || !name || !categoryId) {
+      return res
+        .status(400)
+        .json(envelope({ error: { message: 'sku, name, and categoryId are required' } }))
+    }
+    if (unitCost < 0 || listPrice < 0 || reorderLevel < 0) {
+      return res
+        .status(400)
+        .json(envelope({ error: { message: 'unitCost, listPrice, and reorderLevel must be non-negative' } }))
+    }
+
+    const p = await getPool()
+    const request = p.request()
+    request.input('sku', sql.NVarChar(64), sku)
+    request.input('name', sql.NVarChar(200), name)
+    request.input('description', sql.NVarChar(sql.MAX), description)
+    request.input('categoryId', sql.Int, categoryId)
+    request.input('unitOfMeasure', sql.NVarChar(20), unitOfMeasure)
+    request.input('unitCost', sql.Decimal(18, 4), unitCost)
+    request.input('listPrice', sql.Decimal(18, 4), listPrice)
+    request.input('reorderLevel', sql.Int, reorderLevel)
+    request.input('supplierId', sql.Int, supplierId || null)
+
+    const inserted = await request.query(`
+      INSERT INTO dbo.Products
+        (Sku, Name, Description, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+      OUTPUT inserted.ProductId
+      VALUES
+        (@sku, @name, @description, @categoryId, @unitOfMeasure, @unitCost, @listPrice, @reorderLevel, @supplierId)
+    `)
+    const productId = inserted.recordset[0]?.ProductId
+    return res.status(201).json(envelope({ data: { productId } }))
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.post('/api/stock-adjustments', async (req, res) => {
+  try {
+    const payload = req.body || {}
+    const productId = asInt(payload.productId)
+    const locationId = asInt(payload.locationId)
+    const quantityDelta = asInt(payload.quantityDelta)
+    const note = asNonEmptyString(payload.note) || null
+
+    if (!productId || !locationId || !quantityDelta) {
+      return res.status(400).json(
+        envelope({
+          error: { message: 'productId, locationId, and non-zero quantityDelta are required' },
+        }),
+      )
+    }
+
+    const p = await getPool()
+    const request = p.request()
+    request.input('productId', sql.Int, productId)
+    request.input('locationId', sql.Int, locationId)
+    request.input('quantityDelta', sql.Int, quantityDelta)
+    request.input('note', sql.NVarChar(500), note)
+    const result = await request.query(`
+      INSERT INTO dbo.StockMovements
+        (ProductId, LocationId, QuantityDelta, MovementType, ReferenceType, Note, CreatedByUserId)
+      OUTPUT inserted.MovementId
+      VALUES
+        (@productId, @locationId, @quantityDelta, N'ADJUSTMENT', N'ADJUSTMENT', @note, NULL);
+    `)
+    const movementId = result.recordset[0]?.MovementId
+    return res.status(201).json(envelope({ data: { movementId } }))
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
   }
 })
 
