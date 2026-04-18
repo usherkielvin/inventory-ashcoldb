@@ -38,13 +38,14 @@ GO
 CREATE TABLE dbo.SalesOrderLines (
     SalesOrderLineId BIGINT IDENTITY(1,1) NOT NULL,
     SalesOrderId    BIGINT NOT NULL,
-    LineNo          INT NOT NULL,
+    -- Use LineNumber, not LineNo: T-SQL treats LineNo as the reserved keyword LINENO (case-insensitive).
+    LineNumber      INT NOT NULL,
     ProductId       INT NOT NULL,
     Quantity        INT NOT NULL,
     UnitPrice       DECIMAL(18,4) NOT NULL,
     LineTotal       AS (CAST(Quantity * UnitPrice AS DECIMAL(18,4))) PERSISTED,
     CONSTRAINT PK_SalesOrderLines PRIMARY KEY CLUSTERED (SalesOrderLineId),
-    CONSTRAINT UQ_SalesOrderLines_OrderLine UNIQUE (SalesOrderId, LineNo),
+    CONSTRAINT UQ_SalesOrderLines_OrderLine UNIQUE (SalesOrderId, LineNumber),
     CONSTRAINT FK_SalesOrderLines_Order FOREIGN KEY (SalesOrderId) REFERENCES dbo.SalesOrders (SalesOrderId),
     CONSTRAINT FK_SalesOrderLines_Product FOREIGN KEY (ProductId) REFERENCES dbo.Products (ProductId),
     CONSTRAINT CK_SalesOrderLines_Qty CHECK (Quantity > 0),

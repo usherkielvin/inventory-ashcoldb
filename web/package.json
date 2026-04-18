@@ -1,0 +1,15 @@
+{
+  "name": "ashcol-inventory-web",
+  "private": true,
+  "description": "Express API + Vite React UI for AshcolInventory (optional)",
+  "scripts": {
+    "bootstrap": "npm install && npm install --prefix server && npm install --prefix client",
+    "test:sql": "npm run test:sql --prefix server",
+    "dev": "concurrently -n api,ui -c blue,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

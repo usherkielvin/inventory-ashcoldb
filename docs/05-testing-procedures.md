@@ -1,6 +1,10 @@
 # 5. Testing procedures and results
 
+If the database is not built yet or scripts failed, follow **[`07-ssms-database-setup-from-scratch.md`](07-ssms-database-setup-from-scratch.md)** first, then return here.
+
 Record **your** run results (screenshots or pasted row counts) in this document for submission.
+
+All build steps, verification queries, and demos below are performed in **SQL Server Management Studio (SSMS)** unless your instructor approves another tool. Use **Query** windows (`.sql` opened from this repo), **F5** to execute, and paste or attach **Messages** / **Results** as evidence.
 
 ## 5.1 Environment
 
@@ -8,7 +12,7 @@ Record **your** run results (screenshots or pasted row counts) in this document 
 |------|--------|
 | SQL Server version | |
 | Edition (Express/Developer/…) | |
-| Tool (SSMS / Azure Data Studio) | |
+| Tool | **SSMS** (required for this project) — version: |
 
 ## 5.2 Build verification
 

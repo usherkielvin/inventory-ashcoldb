@@ -1,6 +1,6 @@
 # `inventory/` — SQL blueprint execution order
 
-Run these scripts **top to bottom** on a test instance. All objects use database **`AshcolInventory`** unless you change `00_create_database.sql`.
+Run these scripts **top to bottom** in **SQL Server Management Studio (SSMS)** on a test instance: **File → Open → File**, connect to your engine, then execute each script (**F5**) in the order below. All objects use database **`AshcolInventory`** unless you change `00_create_database.sql`.
 
 ## DDL (schema)
 
@@ -13,7 +13,7 @@ Run these scripts **top to bottom** on a test instance. All objects use database
 | 5 | `ddl/04_inventory_stock.sql` | Stock levels + movement ledger |
 | 6 | `ddl/05_customers_sales.sql` | Customers, orders, lines, invoices |
 | 7 | `ddl/06_purchasing.sql` | Purchase orders + lines |
-| 8 | `ddl/07_indexes.sql` | Nonclustered indexes (clustered = PKs) |
+| 8 | `ddl/07_indexes.sql` | Nonclustered indexes (clustered = PKs). **Requires 01–06 applied.** If you see “Invalid object name”, run [`tests/01_verify_core_tables.sql`](tests/01_verify_core_tables.sql) first. |
 
 ## After DDL (run in this order)
 

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AshcolInventory — Database blueprint demo</title>
+  <style>
+    :root {
+      --bg: #060b18;
+      --card: #0a1120;
+      --border: #1a2844;
+      --text: #eef4ff;
+      --muted: #6b90be;
+      --accent: #10b981;
+      --accent-dim: rgba(16, 185, 129, 0.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.55;
+      font-size: 15px;
+    }
+    header {
+      padding: 2rem 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #0f1e36 0%, var(--bg) 100%);
+    }
+    header h1 { margin: 0 0 0.5rem; font-size: 1.35rem; letter-spacing: -0.02em; }
+    header p { margin: 0; color: var(--muted); max-width: 52rem; }
+    main { max-width: 56rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+    .badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+    section { margin-bottom: 2.25rem; }
+    h2 { font-size: 1.05rem; margin: 0 0 0.75rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem 1.1rem;
+      margin-bottom: 0.75rem;
+    }
+    .card h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+    ol.steps { margin: 0; padding-left: 1.2rem; color: var(--muted); }
+    ol.steps li { margin-bottom: 0.5rem; }
+    ol.steps code { color: #a5f3d0; font-size: 0.85rem; }
+    .grid {
+      display: grid;
+      gap: 0.65rem;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+    pre {
+      margin: 0;
+      padding: 0.85rem 1rem;
+      background: #050810;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow-x: auto;
+      font-size: 0.78rem;
+      color: #cbd5e1;
+    }
+    .sql-wrap { position: relative; margin-top: 0.5rem; }
+    .sql-wrap button {
+      position: absolute;
+      top: 0.45rem;
+      right: 0.45rem;
+      font-size: 0.72rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--card);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .sql-wrap button:hover { color: var(--text); border-color: #2a4066; }
+    a { color: #38bdf8; }
+    footer { color: var(--muted); font-size: 0.8rem; margin-top: 2rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="badge">SQL Server blueprint</div>
+    <h1>AshcolInventory</h1>
+    <p>
+      Static demo for the <strong>Inventory Database</strong> (SQL Server) course project: execution order, functional modules,
+      and verification queries. Open this file in a browser, or serve the <code>demo</code> folder with any static server.
+      This repo is <strong>separate</strong> from any other app database; other stacks may borrow <strong>ideas</strong> only.
+      Deploy and test the real database in <strong>SSMS</strong> (SQL Server Management Studio) per your course requirements.
+    </p>
+  </header>
+  <main>
+    <section>
+      <h2>Build order (SSMS / Azure Data Studio)</h2>
+      <div class="card">
+        <ol class="steps">
+          <li>Run <code>inventory/ddl/00_create_database.sql</code> through <code>07_indexes.sql</code> in order.</li>
+          <li>Run all scripts in <code>inventory/views/</code>.</li>
+          <li>Run all scripts in <code>inventory/triggers/</code> (before seeds — movements populate stock).</li>
+          <li>Run <code>inventory/seeds/01_seed_reference_data.sql</code>.</li>
+          <li>Optional: <code>inventory/transactions/</code> and <code>inventory/warehouse/</code> for labs and OLAP.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section>
+      <h2>Functional modules (10+)</h2>
+      <div class="grid">
+        <div class="card"><h3>Users &amp; roles</h3><p><code>Users</code>, <code>Roles</code>, <code>UserRoles</code> — RBAC baseline.</p></div>
+        <div class="card"><h3>Catalog</h3><p><code>ProductCategories</code>, <code>Products</code> — SKU master with soft delete.</p></div>
+        <div class="card"><h3>Suppliers</h3><p><code>Suppliers</code> — vendor master linked to products.</p></div>
+        <div class="card"><h3>Locations</h3><p><code>Locations</code> — warehouses, stores, branch vans.</p></div>
+        <div class="card"><h3>Stock</h3><p><code>StockLevels</code>, <code>StockMovements</code> — ledger + on-hand (triggers enforce rules).</p></div>
+        <div class="card"><h3>Customers</h3><p><code>Customers</code> — buyer master for sales.</p></div>
+        <div class="card"><h3>Sales</h3><p><code>SalesOrders</code>, <code>SalesOrderLines</code> — normalized orders.</p></div>
+        <div class="card"><h3>Purchasing</h3><p><code>PurchaseOrders</code>, <code>PurchaseOrderLines</code> — replenishment.</p></div>
+        <div class="card"><h3>Invoicing</h3><p><code>Invoices</code> — billing linked to orders.</p></div>
+        <div class="card"><h3>Reporting</h3><p>Views (<code>vw_ActiveProductCatalog</code>, etc.) and optional <code>dw</code> star schema.</p></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Verification (after seed)</h2>
+      <div class="card">
+        <p style="color: var(--muted); margin-bottom: 0.5rem;">Run in <code>AshcolInventory</code> and compare row counts.</p>
+        <div class="sql-wrap">
+          <button type="button" data-copy>Copy</button>
+          <pre id="sql-verify">SELECT COUNT(*) AS RoleCount FROM dbo.Roles;
+SELECT COUNT(*) AS UserCount FROM dbo.Users;
+SELECT COUNT(*) AS ProductCount FROM dbo.Products;
+SELECT COUNT(*) AS StockLevelRows FROM dbo.StockLevels;</pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Views quick check</h2>
+      <div class="sql-wrap">
+        <button type="button" data-copy>Copy</button>
+        <pre id="sql-views">SELECT TOP 10 * FROM dbo.vw_ActiveProductCatalog;
+SELECT TOP 10 * FROM dbo.vw_SalesOrderSummary;</pre>
+      </div>
+    </section>
+
+    <footer>
+      Remote repo:
+      <a href="https://github.com/usherkielvin/inventory-ashcoldb" target="_blank" rel="noopener">github.com/usherkielvin/inventory-ashcoldb</a>
+      · Not linked to other products’ databases—conceptual overlap only if you choose to align documentation elsewhere.
+    </footer>
+  </main>
+  <script>
+    document.querySelectorAll('[data-copy]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var pre = btn.parentElement.querySelector('pre');
+        if (!pre) return;
+        navigator.clipboard.writeText(pre.textContent.trim()).then(function () {
+          var t = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(function () { btn.textContent = t; }, 1500);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

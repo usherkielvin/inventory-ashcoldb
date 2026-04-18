@@ -24,13 +24,14 @@ GO
 CREATE TABLE dbo.PurchaseOrderLines (
     PurchaseOrderLineId BIGINT IDENTITY(1,1) NOT NULL,
     PurchaseOrderId BIGINT NOT NULL,
-    LineNo          INT NOT NULL,
+    -- Use LineNumber, not LineNo: T-SQL treats LineNo as the reserved keyword LINENO (case-insensitive).
+    LineNumber      INT NOT NULL,
     ProductId       INT NOT NULL,
     QuantityOrdered INT NOT NULL,
     UnitCost        DECIMAL(18,4) NOT NULL,
     QuantityReceived INT NOT NULL CONSTRAINT DF_POLines_QtyRec DEFAULT (0),
     CONSTRAINT PK_PurchaseOrderLines PRIMARY KEY CLUSTERED (PurchaseOrderLineId),
-    CONSTRAINT UQ_PurchaseOrderLines_OrderLine UNIQUE (PurchaseOrderId, LineNo),
+    CONSTRAINT UQ_PurchaseOrderLines_OrderLine UNIQUE (PurchaseOrderId, LineNumber),
     CONSTRAINT FK_PurchaseOrderLines_PO FOREIGN KEY (PurchaseOrderId) REFERENCES dbo.PurchaseOrders (PurchaseOrderId),
     CONSTRAINT FK_PurchaseOrderLines_Product FOREIGN KEY (ProductId) REFERENCES dbo.Products (ProductId),
     CONSTRAINT CK_PurchaseOrderLines_QtyOrd CHECK (QuantityOrdered > 0),

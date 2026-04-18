@@ -6,6 +6,9 @@ GO
 
 SET NOCOUNT ON;
 
+PRINT N'[seed] Database: ' + DB_NAME() + N' — inserting reference data...';
+GO
+
 MERGE dbo.Roles AS T
 USING (VALUES
     (N'Administrator', N'Full system access'),
@@ -14,6 +17,12 @@ USING (VALUES
 ) AS S(RoleName, Description)
 ON T.RoleName = S.RoleName
 WHEN NOT MATCHED THEN INSERT (RoleName, Description) VALUES (S.RoleName, S.Description);
+GO
+
+-- PRINT cannot use a subquery inside CAST; use a variable (avoids Msg 1046).
+DECLARE @SeedRoleCount INT;
+SELECT @SeedRoleCount = COUNT(*) FROM dbo.Roles;
+PRINT N'[seed] Roles row count: ' + CAST(@SeedRoleCount AS NVARCHAR(20)) + N' (expect 3).';
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE Email = N'admin@ashcol.local')

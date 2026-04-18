@@ -3,7 +3,7 @@
 ## Normalization
 
 - **1NF:** Atomic columns; repeating groups avoided (line items in `SalesOrderLines` / `PurchaseOrderLines`).
-- **2NF:** Line tables depend on full key (`SalesOrderId`, `LineNo` unique).
+- **2NF:** Line tables depend on full key (`SalesOrderId`, `LineNumber` unique).
 - **3NF:** Non-key attributes depend only on the key (e.g. `Customers.Name` not duplicated on every order beyond `CustomerId` FK).
 
 ## Tables (operational `dbo`)
