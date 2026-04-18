@@ -1,5 +1,7 @@
 /** Shared mssql config for Express and `npm run test:sql`. Load `dotenv` before calling `buildSqlConfig()`. */
 
+import { buildConnectionString } from '@tediousjs/connection-string'
+
 /** Split `host\instance` or use SQL_INSTANCE for named instances. */
 export function parseHostAndInstance(serverEnv, instanceEnv) {
   const inst = String(instanceEnv || '').trim()
@@ -18,6 +20,46 @@ export function parseHostAndInstance(serverEnv, instanceEnv) {
     }
   }
   return { host: s === '.' ? 'localhost' : s, instanceName: undefined }
+}
+
+function odbcDriverName() {
+  return (
+    String(process.env.SQL_ODBC_DRIVER || '').trim() ||
+    'ODBC Driver 18 for SQL Server'
+  )
+}
+
+/**
+ * `mssql/msnodesqlv8` defaults to "SQL Server Native Client 11.0", which is often not installed.
+ * Build an explicit ODBC connection string (Driver 17/18) instead.
+ */
+function buildMsv8OdbcConnectionString({
+  serverSpec,
+  database,
+  useWindows,
+  user,
+  password,
+  encrypt,
+  trustServerCertificate,
+}) {
+  const base = {
+    Driver: odbcDriverName(),
+    Server: serverSpec,
+    Database: database,
+    Encrypt: encrypt ? 'yes' : 'no',
+    TrustServerCertificate: trustServerCertificate ? 'yes' : 'no',
+  }
+  if (useWindows) {
+    return buildConnectionString({
+      ...base,
+      Trusted_Connection: 'yes',
+    })
+  }
+  return buildConnectionString({
+    ...base,
+    Uid: user,
+    Pwd: password ?? '',
+  })
 }
 
 /**
@@ -39,9 +81,12 @@ export function buildSqlConfig() {
     fullServer = fullServer.replace(/\\{2,}/g, '\\')
   }
   if (fullServer) {
+    const encrypt = process.env.SQL_ENCRYPT !== 'false'
+    const trustServerCertificate =
+      process.env.SQL_TRUST_SERVER_CERTIFICATE === 'true'
     const options = {
-      encrypt: process.env.SQL_ENCRYPT !== 'false',
-      trustServerCertificate: process.env.SQL_TRUST_SERVER_CERTIFICATE === 'true',
+      encrypt,
+      trustServerCertificate,
       enableArithAbort: true,
     }
     if (useWindows) {
@@ -50,12 +95,23 @@ export function buildSqlConfig() {
     const connectionTimeout = Number(
       process.env.SQL_CONNECTION_TIMEOUT_MS || 60000,
     )
+    const database = process.env.SQL_DATABASE || 'AshcolInventory'
     const config = {
       server: fullServer,
-      database: process.env.SQL_DATABASE || 'AshcolInventory',
+      database,
       connectionTimeout,
       requestTimeout: connectionTimeout,
       options,
+      driver: 'msnodesqlv8',
+      connectionString: buildMsv8OdbcConnectionString({
+        serverSpec: fullServer,
+        database,
+        useWindows,
+        user: process.env.SQL_USER,
+        password: process.env.SQL_PASSWORD,
+        encrypt,
+        trustServerCertificate,
+      }),
     }
     if (!useWindows) {
       config.user = process.env.SQL_USER
@@ -80,9 +136,13 @@ export function buildSqlConfig() {
     process.env.SQL_INSTANCE,
   )
 
+  const encrypt = process.env.SQL_ENCRYPT !== 'false'
+  const trustServerCertificate =
+    process.env.SQL_TRUST_SERVER_CERTIFICATE === 'true'
+
   const options = {
-    encrypt: process.env.SQL_ENCRYPT !== 'false',
-    trustServerCertificate: process.env.SQL_TRUST_SERVER_CERTIFICATE === 'true',
+    encrypt,
+    trustServerCertificate,
     enableArithAbort: true,
   }
 
@@ -97,7 +157,9 @@ export function buildSqlConfig() {
   const connectionTimeout = Number(process.env.SQL_CONNECTION_TIMEOUT_MS || 60000)
 
   let serverHost = host
+  // Tedious (SQL auth path) can hit IPv6 `::1` issues for `localhost`; keep `localhost` for Windows/ODBC (SSPI).
   if (
+    !useWindows &&
     port &&
     !Number.isNaN(port) &&
     port > 0 &&
@@ -107,9 +169,11 @@ export function buildSqlConfig() {
     serverHost = '127.0.0.1'
   }
 
+  const database = process.env.SQL_DATABASE || 'AshcolInventory'
+
   const config = {
     server: serverHost,
-    database: process.env.SQL_DATABASE || 'AshcolInventory',
+    database,
     connectionTimeout,
     requestTimeout: connectionTimeout,
     options,
@@ -119,6 +183,25 @@ export function buildSqlConfig() {
     config.port = port
     delete config.options.instanceName
   }
+
+  config.driver = 'msnodesqlv8'
+
+  const hasTcpPort = port !== undefined && !Number.isNaN(port) && port > 0
+  const serverSpec = hasTcpPort
+    ? `${serverHost},${port}`
+    : config.options.instanceName
+      ? `${serverHost}\\${config.options.instanceName}`
+      : serverHost
+
+  config.connectionString = buildMsv8OdbcConnectionString({
+    serverSpec,
+    database,
+    useWindows,
+    user: process.env.SQL_USER,
+    password: process.env.SQL_PASSWORD,
+    encrypt,
+    trustServerCertificate,
+  })
 
   if (!useWindows) {
     config.user = process.env.SQL_USER

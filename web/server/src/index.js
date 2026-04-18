@@ -1,8 +1,10 @@
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
-import sql from 'mssql'
+import { getMssql } from './sqlClient.js'
 import { buildSqlConfig } from './sqlConfig.js'
+
+const sql = getMssql()
 
 const PORT = Number(process.env.PORT || 3001)
 
@@ -14,6 +16,7 @@ try {
     port: sqlConfig.port,
     instanceName: sqlConfig.options.instanceName,
     database: sqlConfig.database,
+    driver: sqlConfig.driver,
     windowsAuth: Boolean(sqlConfig.options.trustedConnection),
     connectionTimeoutMs: sqlConfig.connectionTimeout,
   }

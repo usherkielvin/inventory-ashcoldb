@@ -5,11 +5,13 @@
 import { config as loadEnv } from 'dotenv'
 import { dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
-import sql from 'mssql'
 import { buildSqlConfig } from '../src/sqlConfig.js'
+import { getMssql } from '../src/sqlClient.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 loadEnv({ path: resolve(__dirname, '..', '.env') })
+
+const sql = getMssql()
 
 console.log('Testing SQL connection (same config as API)...\n')
 
@@ -25,6 +27,7 @@ console.log('Resolved:', JSON.stringify({
   server: cfg.server,
   port: cfg.port,
   instanceName: cfg.options.instanceName,
+  driver: cfg.driver,
   mode: process.env.SQL_SERVER_FULL?.trim() ? 'SQL_SERVER_FULL' : 'host/instance/port',
   database: cfg.database,
   windowsAuth: Boolean(cfg.options.trustedConnection),
