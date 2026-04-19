@@ -1,8 +1,10 @@
 # 3. Entity-relationship diagram (ERD)
 
-## Diagram (conceptual — Mermaid)
+## Diagram
 
-Paste into [Mermaid Live](https://mermaid.live) or any Markdown viewer that supports Mermaid for a clean figure export (PNG/PDF) for your submission.
+![AshcolInventory ERD](assets/erd.png)
+
+> Mermaid source below — paste into [Mermaid Live](https://mermaid.live) or export to PNG/PDF for your submission if your instructor requires a standalone diagram file.
 
 ```mermaid
 erDiagram

@@ -69,3 +69,75 @@ After `inventory/warehouse/star_schema_ddl.sql`, verify:
 ```sql
 SELECT SCHEMA_NAME(schema_id), name FROM sys.tables WHERE schema_id = SCHEMA_ID('dw');
 ```
+
+## 5.10 Demo transaction seed verification
+
+Run `inventory/seeds/03_seed_demo_transactions.sql` in SSMS.  
+The script ends with a verification `SELECT`; expected minimum row counts:
+
+| Entity | Expected rows |
+|--------|--------------|
+| Customers | 5 |
+| SalesOrders | 5 |
+| SalesOrderLines | ≥ 10 |
+| Invoices | 3 |
+| PurchaseOrders | 3 |
+| PurchaseOrderLines | 6 |
+| StockMovements | ≥ 20 |
+
+_Paste your actual results grid here._
+
+## 5.11 Low-stock alert view
+
+After executing `inventory/views/vw_LowStockAlert.sql`:
+
+```sql
+SELECT * FROM dbo.vw_LowStockAlert ORDER BY ShortfallQty DESC;
+```
+
+**Expected:** Products whose current `TotalOnHand` (summed across locations) is below `ReorderLevel` appear — typically refrigerant and coil SKUs after demo sales are applied.
+
+_Paste Results grid here._
+
+## 5.12 Purchase order summary view
+
+After executing `inventory/views/vw_PurchaseOrderSummary.sql`:
+
+```sql
+SELECT * FROM dbo.vw_PurchaseOrderSummary ORDER BY OrderDate;
+```
+
+**Expected:** 3 rows — PO-2026-001 (RECEIVED, 100 %), PO-2026-002 (OPEN, 0 %), PO-2026-003 (PARTIAL, ~75 %).
+
+_Paste Results grid here._
+
+## 5.13 Invoice summary view
+
+After executing `inventory/views/vw_InvoiceSummary.sql`:
+
+```sql
+SELECT * FROM dbo.vw_InvoiceSummary ORDER BY InvoiceDate;
+```
+
+**Expected:** 3 rows — INV-2026-001 (PAID), INV-2026-002 (PAID), INV-2026-003 (UNPAID).
+
+Then mark INV-2026-003 as PAID and verify:
+
+```sql
+UPDATE dbo.Invoices SET PaymentStatus = N'PAID' WHERE InvoiceNumber = N'INV-2026-003';
+SELECT InvoiceNumber, PaymentStatus FROM dbo.vw_InvoiceSummary;
+```
+
+_Paste before/after Results grids here._
+
+## 5.14 Stock movement log view
+
+After executing `inventory/views/vw_StockMovementLog.sql`:
+
+```sql
+SELECT TOP 20 * FROM dbo.vw_StockMovementLog ORDER BY MovementId DESC;
+```
+
+**Expected:** Recent movements show readable product names, location names, and the current `QuantityOnHand` snapshot.
+
+_Paste Results grid here._
