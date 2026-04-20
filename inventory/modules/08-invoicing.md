@@ -1,5 +1,6 @@
--- Invoicing module
--- Billing document generated from a confirmed/completed SalesOrder.
+# Module 08 — Invoicing
+
+> Billing document generated from a confirmed/completed `SalesOrder`.
 
 ## Tables
 
