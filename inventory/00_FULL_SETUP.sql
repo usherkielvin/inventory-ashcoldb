@@ -562,65 +562,166 @@ IF @AdminId IS NOT NULL AND @RAdmin IS NOT NULL
     INSERT INTO dbo.UserRoles (UserId, RoleId) VALUES (@AdminId, @RAdmin);
 GO
 
+-- Aircon-specific product categories
 MERGE dbo.ProductCategories AS T
 USING (VALUES
-    (N'HVAC Parts', NULL),(N'Refrigerants', NULL),(N'Consumables', NULL)
+    (N'Window Type Aircon',       NULL),
+    (N'Split Type Aircon',        NULL),
+    (N'Portable Aircon',          NULL),
+    (N'Inverter Aircon',          NULL),
+    (N'Aircon Spare Parts',       NULL),
+    (N'Refrigerants',             NULL),
+    (N'Cleaning & Maintenance',   NULL)
 ) AS S(Name, ParentCategoryId)
 ON T.Name = S.Name
 WHEN NOT MATCHED THEN INSERT (Name, ParentCategoryId) VALUES (S.Name, S.ParentCategoryId);
 GO
 
+-- Aircon suppliers/brands (Ashcol partner brands)
 MERGE dbo.Suppliers AS T
 USING (VALUES
-    (N'Ashcol Preferred Vendor', N'Procurement', N'parts@example.com', N'+63-2-0000-0000', N'Metro Manila'),
-    (N'Cold Chain Supply Co.', N'Sales', N'sales@coldchain.example', NULL, NULL)
+    (N'Carrier Philippines',        N'Sales Dept',   N'sales@carrier.com.ph',      N'+63-2-8888-9999', N'Makati City, Metro Manila'),
+    (N'Daikin Philippines',         N'Trade Sales',  N'trade@daikin.com.ph',       N'+63-2-7777-8888', N'Pasig City, Metro Manila'),
+    (N'Panasonic Philippines',      N'AC Division',  N'ac@panasonic.com.ph',       N'+63-2-6666-7777', N'Quezon City, Metro Manila'),
+    (N'Samsung Philippines',        N'AC Division',  N'ac@samsung.com.ph',         N'+63-2-8888-7777', N'Taguig City, Metro Manila'),
+    (N'LG Electronics Philippines', N'AC Sales',     N'ac@lg.com.ph',              N'+63-2-8888-6666', N'Taguig City, Metro Manila'),
+    (N'Koppel Philippines',         N'Trade Sales',  N'sales@koppel.com.ph',       N'+63-2-7777-5555', N'Quezon City, Metro Manila'),
+    (N'Mitsubishi Electric PH',     N'AC Division',  N'ac@mitsubishi.com.ph',      N'+63-2-8888-5555', N'Makati City, Metro Manila'),
+    (N'York Philippines',           N'Distributor',  N'sales@york.com.ph',         N'+63-2-7777-4444', N'Pasig City, Metro Manila'),
+    (N'Gree Philippines',           N'Trade Sales',  N'orders@gree.com.ph',        N'+63-2-6666-3333', N'Mandaluyong City, Metro Manila'),
+    (N'Midea Philippines',          N'Distributor',  N'orders@midea.com.ph',       N'+63-2-5555-6666', N'Mandaluyong City, Metro Manila'),
+    (N'Sharp Philippines',          N'AC Division',  N'ac@sharp.com.ph',           N'+63-2-5555-4444', N'Quezon City, Metro Manila'),
+    (N'Haier Philippines',          N'Distributor',  N'sales@haier.com.ph',        N'+63-2-5555-3333', N'Pasig City, Metro Manila'),
+    (N'TCL Philippines',            N'Trade Sales',  N'orders@tcl.com.ph',         N'+63-2-4444-3333', N'Mandaluyong City, Metro Manila'),
+    (N'Aux Philippines',            N'Distributor',  N'sales@aux.com.ph',          N'+63-2-4444-2222', N'Quezon City, Metro Manila'),
+    (N'Fuji Aire Philippines',      N'AC Sales',     N'sales@fujiaire.com.ph',     N'+63-2-3333-2222', N'Makati City, Metro Manila'),
+    (N'Kolin Philippines',          N'Trade Sales',  N'orders@kolin.com.ph',       N'+63-2-3333-1111', N'Quezon City, Metro Manila'),
+    (N'Ashcol Parts & Supply',      N'Procurement',  N'parts@ashcol.local',        N'+63-2-1234-5678', N'Quezon City, Metro Manila')
 ) AS S(Name, ContactName, Email, Phone, AddressLine)
 ON T.Name = S.Name
 WHEN NOT MATCHED THEN INSERT (Name, ContactName, Email, Phone, AddressLine)
 VALUES (S.Name, S.ContactName, S.Email, S.Phone, S.AddressLine);
 GO
 
+-- Ashcol branch locations
 MERGE dbo.Locations AS T
 USING (VALUES
-    (N'MWH-01', N'Main Warehouse', N'WAREHOUSE', N'Quezon City'),
-    (N'BRN-CRB', N'Cebu Branch Store', N'STORE', N'Cebu City'),
-    (N'VAN-MNL-1', N'Manila Service Van 1', N'BRANCH_VAN', NULL)
+    (N'WH-QC-01',   N'Quezon City Main Warehouse',  N'WAREHOUSE',  N'Quezon City, Metro Manila'),
+    (N'STR-MKT-01', N'Makati Showroom & Store',     N'STORE',      N'Makati City, Metro Manila'),
+    (N'STR-CEB-01', N'Cebu Branch Store',           N'STORE',      N'Cebu City, Cebu'),
+    (N'VAN-MNL-01', N'Metro Manila Service Van 1',  N'BRANCH_VAN', NULL),
+    (N'VAN-MNL-02', N'Metro Manila Service Van 2',  N'BRANCH_VAN', NULL)
 ) AS S(Code, Name, LocationType, AddressLine)
 ON T.Code = S.Code
 WHEN NOT MATCHED THEN INSERT (Code, Name, LocationType, AddressLine)
 VALUES (S.Code, S.Name, S.LocationType, S.AddressLine);
 GO
 
-DECLARE @CatParts INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'HVAC Parts');
-DECLARE @CatRef   INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Refrigerants');
-DECLARE @Sup1     INT = (SELECT SupplierId FROM dbo.Suppliers WHERE Name = N'Ashcol Preferred Vendor');
+-- Aircon products with realistic PH pricing (PHP)
+DECLARE @CatWindow  INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Window Type Aircon');
+DECLARE @CatSplit   INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Split Type Aircon');
+DECLARE @CatInv     INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Inverter Aircon');
+DECLARE @CatPortable INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Portable Aircon');
+DECLARE @CatParts   INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Aircon Spare Parts');
+DECLARE @CatRef     INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Refrigerants');
+DECLARE @CatClean   INT = (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Cleaning & Maintenance');
 
-IF @CatParts IS NOT NULL AND @Sup1 IS NOT NULL
-BEGIN
-    MERGE dbo.Products AS T
-    USING (VALUES
-        (N'SKU-FILTER-001', N'AC Filter 1.5HP',    @CatParts, N'PCS', 120.0000, 199.0000, 20, @Sup1),
-        (N'SKU-CAP-45',     N'Run Capacitor 45uF', @CatParts, N'PCS',  85.0000, 150.0000, 15, @Sup1)
-    ) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
-    ON T.Sku = S.Sku
-    WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
-    VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
-END;
+DECLARE @Carrier    INT = (SELECT SupplierId FROM dbo.Suppliers WHERE Name = N'Carrier Philippines');
+DECLARE @Daikin     INT = (SELECT SupplierId FROM dbo.Suppliers WHERE Name = N'Daikin Philippines');
+DECLARE @Panasonic  INT = (SELECT SupplierId FROM dbo.Suppliers WHERE Name = N'Panasonic Philippines');
+DECLARE @Midea      INT = (SELECT SupplierId FROM dbo.Suppliers WHERE Name = N'Midea Philippines');
+DECLARE @Ashcol     INT = (SELECT SupplierId FROM dbo.Suppliers WHERE Name = N'Ashcol Parts & Supply');
 
-IF @CatRef IS NOT NULL
-BEGIN
-    MERGE dbo.Products AS T
-    USING (VALUES
-        (N'SKU-R410A-5', N'R-410A Refrigerant 5kg', @CatRef, N'KG', 2500.0000, 3200.0000, 5, @Sup1)
-    ) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
-    ON T.Sku = S.Sku
-    WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
-    VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
-END;
+-- Window Type
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'AC-WIN-CAR-05HP', N'Carrier Window AC 0.5HP',          @CatWindow,   N'UNIT', 8500.0000,  11999.0000, 5,  @Carrier),
+    (N'AC-WIN-CAR-10HP', N'Carrier Window AC 1.0HP',          @CatWindow,   N'UNIT', 12000.0000, 16999.0000, 5,  @Carrier),
+    (N'AC-WIN-MID-10HP', N'Midea Window AC 1.0HP',            @CatWindow,   N'UNIT', 9500.0000,  13499.0000, 5,  @Midea),
+    (N'AC-WIN-PAN-15HP', N'Panasonic Window AC 1.5HP',        @CatWindow,   N'UNIT', 15000.0000, 20999.0000, 3,  @Panasonic)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
+
+-- Split Type
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'AC-SPL-DAI-10HP', N'Daikin Split Type AC 1.0HP',       @CatSplit,    N'UNIT', 18000.0000, 24999.0000, 3,  @Daikin),
+    (N'AC-SPL-DAI-15HP', N'Daikin Split Type AC 1.5HP',       @CatSplit,    N'UNIT', 22000.0000, 30999.0000, 3,  @Daikin),
+    (N'AC-SPL-CAR-20HP', N'Carrier Split Type AC 2.0HP',      @CatSplit,    N'UNIT', 25000.0000, 34999.0000, 2,  @Carrier),
+    (N'AC-SPL-PAN-10HP', N'Panasonic Split Type AC 1.0HP',    @CatSplit,    N'UNIT', 17500.0000, 23999.0000, 3,  @Panasonic)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
+
+-- Inverter
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'AC-INV-DAI-10HP', N'Daikin Inverter AC 1.0HP',         @CatInv,      N'UNIT', 28000.0000, 38999.0000, 3,  @Daikin),
+    (N'AC-INV-DAI-15HP', N'Daikin Inverter AC 1.5HP',         @CatInv,      N'UNIT', 33000.0000, 45999.0000, 2,  @Daikin),
+    (N'AC-INV-CAR-15HP', N'Carrier Inverter AC 1.5HP',        @CatInv,      N'UNIT', 31000.0000, 42999.0000, 2,  @Carrier),
+    (N'AC-INV-PAN-20HP', N'Panasonic Inverter AC 2.0HP',      @CatInv,      N'UNIT', 38000.0000, 52999.0000, 2,  @Panasonic)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
+
+-- Portable
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'AC-PRT-MID-10HP', N'Midea Portable AC 1.0HP',          @CatPortable, N'UNIT', 14000.0000, 19999.0000, 3,  @Midea),
+    (N'AC-PRT-CAR-15HP', N'Carrier Portable AC 1.5HP',        @CatPortable, N'UNIT', 18000.0000, 25999.0000, 2,  @Carrier)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
+
+-- Spare Parts
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'PRT-FILTER-GEN',  N'AC Air Filter (Generic)',           @CatParts,    N'PCS',    80.0000,   150.0000, 30, @Ashcol),
+    (N'PRT-CAP-35UF',    N'Run Capacitor 35uF',                @CatParts,    N'PCS',    75.0000,   130.0000, 20, @Ashcol),
+    (N'PRT-CAP-45UF',    N'Run Capacitor 45uF',                @CatParts,    N'PCS',    85.0000,   150.0000, 20, @Ashcol),
+    (N'PRT-FANMOTOR-DC', N'DC Indoor Fan Motor',               @CatParts,    N'PCS',   450.0000,   750.0000, 10, @Ashcol),
+    (N'PRT-THERMO-DIG',  N'Digital Thermostat Board',          @CatParts,    N'PCS',   350.0000,   600.0000, 10, @Ashcol),
+    (N'PRT-DRAIN-PAN',   N'Drain Pan (Split Type)',            @CatParts,    N'PCS',   280.0000,   480.0000, 8,  @Ashcol),
+    (N'PRT-REMOTE-UNI',  N'Universal AC Remote Control',       @CatParts,    N'PCS',   120.0000,   220.0000, 25, @Ashcol),
+    (N'PRT-COIL-EVAP',   N'Evaporator Coil Assembly',          @CatParts,    N'PCS',  3200.0000,  5500.0000, 5,  @Ashcol),
+    (N'PRT-COMPRESSOR',  N'Rotary Compressor 1.0HP',           @CatParts,    N'PCS',  5500.0000,  9500.0000, 3,  @Ashcol)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
+
+-- Refrigerants
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'REF-R22-13KG',    N'R-22 Refrigerant 13.6kg Cylinder', @CatRef,      N'CYL',  3800.0000,  5500.0000, 5,  @Ashcol),
+    (N'REF-R410A-10KG',  N'R-410A Refrigerant 10kg Cylinder', @CatRef,      N'CYL',  5500.0000,  7800.0000, 5,  @Ashcol),
+    (N'REF-R32-10KG',    N'R-32 Refrigerant 10kg Cylinder',   @CatRef,      N'CYL',  4800.0000,  6800.0000, 5,  @Ashcol)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
+
+-- Cleaning & Maintenance
+MERGE dbo.Products AS T
+USING (VALUES
+    (N'CLN-COILCLEAN-1L', N'AC Coil Cleaner Spray 1L',        @CatClean,    N'CAN',   160.0000,   280.0000, 20, @Ashcol),
+    (N'CLN-FOAMCLEAN-1L', N'AC Foam Cleaner No-Rinse 1L',     @CatClean,    N'CAN',   180.0000,   320.0000, 20, @Ashcol),
+    (N'CLN-INSUL-TAPE',   N'Insulation Tape Roll 10m',        @CatClean,    N'ROLL',   30.0000,    60.0000, 50, @Ashcol),
+    (N'CLN-DRAIN-TABS',   N'Drain Pan Cleaning Tablets x10',  @CatClean,    N'PACK',   85.0000,   150.0000, 30, @Ashcol),
+    (N'CLN-LUBRICANT',    N'AC Motor Lubricant Oil 100ml',    @CatClean,    N'BTL',    95.0000,   170.0000, 20, @Ashcol)
+) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+ON T.Sku = S.Sku
+WHEN NOT MATCHED THEN INSERT (Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId)
+VALUES (S.Sku, S.Name, S.CategoryId, S.UnitOfMeasure, S.UnitCost, S.ListPrice, S.ReorderLevel, S.SupplierId);
 GO
 
 DECLARE @Admin BIGINT = (SELECT UserId FROM dbo.Users WHERE Email = N'admin@ashcol.local');
-DECLARE @Loc1  INT    = (SELECT LocationId FROM dbo.Locations WHERE Code = N'MWH-01');
+DECLARE @Loc1  INT    = (SELECT LocationId FROM dbo.Locations WHERE Code = N'WH-QC-01');
 INSERT INTO dbo.StockMovements (ProductId, LocationId, QuantityDelta, MovementType, ReferenceType, Note, CreatedByUserId)
 SELECT p.ProductId, @Loc1, 50, N'INITIAL', N'ADJUSTMENT', N'Seed opening balance', @Admin
 FROM dbo.Products p
