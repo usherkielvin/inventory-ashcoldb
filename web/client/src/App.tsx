@@ -362,14 +362,20 @@ function ProductsPage({ api }: { api: ReturnType<typeof makeApi> }) {
           </div>
           <div className="field">
             <label>Category</label>
-            <select id="filter-category" value={filters.categoryId} onChange={e => setFilters(s => ({ ...s, categoryId: e.target.value, page: 1 }))}>
+            <select id="filter-category" value={filters.categoryId} onChange={e => {
+              const next = { ...filters, categoryId: e.target.value, page: 1, q: search.trim() };
+              setFilters(next); loadProducts(next);
+            }}>
               <option value="">All</option>
               {lookups.categories.map(c => <option key={c.CategoryId} value={c.CategoryId}>{c.Name}</option>)}
             </select>
           </div>
           <div className="field">
             <label>Supplier</label>
-            <select id="filter-supplier" value={filters.supplierId} onChange={e => setFilters(s => ({ ...s, supplierId: e.target.value, page: 1 }))}>
+            <select id="filter-supplier" value={filters.supplierId} onChange={e => {
+              const next = { ...filters, supplierId: e.target.value, page: 1, q: search.trim() };
+              setFilters(next); loadProducts(next);
+            }}>
               <option value="">All</option>
               {lookups.suppliers.map(s => <option key={s.SupplierId} value={s.SupplierId}>{s.Name}</option>)}
             </select>
@@ -514,6 +520,7 @@ function ProductsPage({ api }: { api: ReturnType<typeof makeApi> }) {
 function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
   const [orders,  setOrders]  = useState<SalesOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const [filter,  setFilter]  = useState<string | null>(null)
 
   useEffect(() => { api<SalesOrder[]>('/api/sales-orders').then(r => setOrders(r.data ?? [])).finally(() => setLoading(false)) }, [])
 
@@ -521,6 +528,8 @@ function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
     revenue: orders.filter(o => ['CONFIRMED','SHIPPED','COMPLETED'].includes(o.OrderStatus)).reduce((s, o) => s + Number(o.LinesTotal), 0),
     byStatus: orders.reduce((acc, o) => { acc[o.OrderStatus] = (acc[o.OrderStatus] ?? 0) + 1; return acc }, {} as Record<string,number>),
   }), [orders])
+  
+  const displayedOrders = useMemo(() => filter ? orders.filter(o => o.OrderStatus === filter) : orders, [orders, filter])
 
   return (
     <div className="main">
@@ -530,16 +539,16 @@ function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
       </div>
 
       <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
+        <div className="stat-card" style={{ '--stat-color': 'var(--text-muted)', cursor: 'pointer', opacity: filter === null ? 1 : 0.6 } as React.CSSProperties} onClick={() => setFilter(null)}>
+          <div className="stat-value">{orders.length}</div>
+          <div className="stat-label">All Orders</div>
+        </div>
         {Object.entries(totals.byStatus).map(([status, count]) => (
-          <div key={status} className="stat-card" style={{ '--stat-color': status === 'COMPLETED' ? 'var(--green)' : status === 'SHIPPED' ? 'var(--amber)' : status === 'CONFIRMED' ? 'var(--blue)' : 'var(--text-muted)' } as React.CSSProperties}>
+          <div key={status} className="stat-card" style={{ '--stat-color': status === 'COMPLETED' ? 'var(--green)' : status === 'SHIPPED' ? 'var(--amber)' : status === 'CONFIRMED' ? 'var(--blue)' : 'var(--text-muted)', cursor: 'pointer', opacity: filter === status ? 1 : (filter ? 0.6 : 1) } as React.CSSProperties} onClick={() => setFilter(status)}>
             <div className="stat-value">{count}</div>
             <div className="stat-label">{status}</div>
           </div>
         ))}
-        <div className="stat-card" style={{ '--stat-color': 'var(--green)' } as React.CSSProperties}>
-          <div className="stat-value">{fmt(totals.revenue)}</div>
-          <div className="stat-label">Confirmed Revenue</div>
-        </div>
       </div>
 
       <div className="card">
@@ -552,7 +561,7 @@ function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
             <thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Location</th><th>Status</th><th>Total</th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={6} className="text-muted">Loading…</td></tr>}
-              {!loading && orders.map(o => (
+              {!loading && displayedOrders.map(o => (
                 <tr key={o.SalesOrderId}>
                   <td className="mono">{o.OrderNumber}</td>
                   <td>{fmtDate(o.OrderDate)}</td>
@@ -578,6 +587,7 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
   const [loading,  setLoading]  = useState(true)
   const [paying,   setPaying]   = useState<number | null>(null)
   const [message,  setMessage]  = useState<{ text: string; ok: boolean } | null>(null)
+  const [filter,   setFilter]   = useState<string | null>(null)
 
   useEffect(() => { api<Invoice[]>('/api/invoices').then(r => setInvoices(r.data ?? [])).finally(() => setLoading(false)) }, [])
 
@@ -605,20 +615,20 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
       </div>
 
       <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
-        <div className="stat-card" style={{ '--stat-color': 'var(--green)' } as React.CSSProperties}>
+        <div className="stat-card" style={{ '--stat-color': 'var(--blue)', cursor: 'pointer', opacity: filter === null ? 1 : 0.6 } as React.CSSProperties} onClick={() => setFilter(null)}>
+          <div className="stat-icon">🧾</div>
+          <div className="stat-value">{invoices.length}</div>
+          <div className="stat-label">All Invoices</div>
+        </div>
+        <div className="stat-card" style={{ '--stat-color': 'var(--green)', cursor: 'pointer', opacity: filter === 'PAID' ? 1 : (filter ? 0.6 : 1) } as React.CSSProperties} onClick={() => setFilter('PAID')}>
           <div className="stat-icon">✅</div>
           <div className="stat-value">{fmt(totals.paid)}</div>
           <div className="stat-label">Collected Revenue</div>
         </div>
-        <div className="stat-card" style={{ '--stat-color': 'var(--amber)' } as React.CSSProperties}>
+        <div className="stat-card" style={{ '--stat-color': 'var(--amber)', cursor: 'pointer', opacity: filter === 'UNPAID' ? 1 : (filter ? 0.6 : 1) } as React.CSSProperties} onClick={() => setFilter('UNPAID')}>
           <div className="stat-icon">⏳</div>
           <div className="stat-value">{fmt(totals.unpaid)}</div>
           <div className="stat-label">Outstanding</div>
-        </div>
-        <div className="stat-card" style={{ '--stat-color': 'var(--blue)' } as React.CSSProperties}>
-          <div className="stat-icon">🧾</div>
-          <div className="stat-value">{invoices.length}</div>
-          <div className="stat-label">Total Invoices</div>
         </div>
       </div>
 
@@ -631,7 +641,7 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
             <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th>Order</th><th>Sub-Total</th><th>VAT (12%)</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={9} className="text-muted">Loading…</td></tr>}
-              {!loading && invoices.map(inv => (
+              {!loading && invoices.filter(i => filter ? i.PaymentStatus === filter : true).map(inv => (
                 <tr key={inv.InvoiceId}>
                   <td className="mono">{inv.InvoiceNumber}</td>
                   <td>{fmtDate(inv.InvoiceDate)}</td>
@@ -662,6 +672,7 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
 function PurchaseOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
   const [pos,     setPos]     = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
+  const [filter,  setFilter]  = useState<string | null>(null)
 
   useEffect(() => { api<PurchaseOrder[]>('/api/purchase-orders').then(r => setPos(r.data ?? [])).finally(() => setLoading(false)) }, [])
 
@@ -673,10 +684,14 @@ function PurchaseOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
       </div>
 
       <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
+        <div className="stat-card" style={{ '--stat-color': 'var(--text-muted)', cursor: 'pointer', opacity: filter === null ? 1 : 0.6 } as React.CSSProperties} onClick={() => setFilter(null)}>
+          <div className="stat-value">{pos.length}</div>
+          <div className="stat-label">All POs</div>
+        </div>
         {['RECEIVED','PARTIAL','OPEN'].map(status => {
           const filtered = pos.filter(p => p.Status === status)
           return (
-            <div key={status} className="stat-card" style={{ '--stat-color': status === 'RECEIVED' ? 'var(--green)' : status === 'PARTIAL' ? 'var(--amber)' : 'var(--blue)' } as React.CSSProperties}>
+            <div key={status} className="stat-card" style={{ '--stat-color': status === 'RECEIVED' ? 'var(--green)' : status === 'PARTIAL' ? 'var(--amber)' : 'var(--blue)', cursor: 'pointer', opacity: filter === status ? 1 : (filter ? 0.6 : 1) } as React.CSSProperties} onClick={() => setFilter(status)}>
               <div className="stat-value">{filtered.length}</div>
               <div className="stat-label">{status} POs</div>
             </div>
@@ -691,7 +706,7 @@ function PurchaseOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
             <thead><tr><th>PO #</th><th>Date</th><th>Supplier</th><th>Ship To</th><th>Lines</th><th>Ordered Value</th><th>Status</th><th>Fulfilment</th></tr></thead>
             <tbody>
               {loading && <tr><td colSpan={8} className="text-muted">Loading…</td></tr>}
-              {!loading && pos.map(po => (
+              {!loading && pos.filter(p => filter ? p.Status === filter : true).map(po => (
                 <tr key={po.PurchaseOrderId}>
                   <td className="mono">{po.PoNumber}</td>
                   <td>{fmtDate(po.OrderDate)}</td>
