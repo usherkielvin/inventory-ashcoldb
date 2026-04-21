@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type Page = 'dashboard' | 'products' | 'sales-orders' | 'invoices' | 'purchase-orders'
+type Page = 'dashboard' | 'products' | 'sales-orders' | 'invoices' | 'purchase-orders' | 'service-jobs'
 
 type User = { email: string; role: string; fullName: string }
 
@@ -15,7 +15,8 @@ type HealthData    = { ok: boolean; database?: string; serverVersion?: string }
 type LookupCategory = { CategoryId: number; Name: string }
 type LookupSupplier = { SupplierId: number; Name: string }
 type LookupLocation = { LocationId: number; Code: string; Name: string; LocationType: string }
-type LookupData    = { categories: LookupCategory[]; suppliers: LookupSupplier[]; locations: LookupLocation[] }
+type LookupCustomer = { CustomerId: number; Name: string; Email: string | null; Phone: string | null }
+type LookupData    = { categories: LookupCategory[]; suppliers: LookupSupplier[]; locations: LookupLocation[]; customers?: LookupCustomer[] }
 
 type Product = {
   ProductId: number; Sku: string; Name: string; UnitOfMeasure: string
@@ -34,6 +35,11 @@ type Invoice = { InvoiceId: number; InvoiceNumber: string; InvoiceDate: string; 
 type PurchaseOrder = { PurchaseOrderId: number; PoNumber: string; OrderDate: string; Status: string; Supplier: string; ShipToLocation: string; CreatedBy: string | null; LineCount: number; TotalQtyOrdered: number; TotalQtyReceived: number; TotalOrderedValue: number; TotalReceivedValue: number; FulfilmentPct: number }
 
 type LowStockItem = { ProductId: number; Sku: string; ProductName: string; Category: string; Supplier: string; ReorderLevel: number; TotalOnHand: number; ShortfallQty: number }
+
+type ServiceJob = { JobId: number; JobNumber: string; JobStatus: string; CustomerName: string; LocationName: string; LocationCode: string; ManagerName: string | null; AssigneeName: string | null; ScheduledDate: string; CompletedDate: string | null; MaterialCount: number; EstimatedCost: number; Notes: string | null; CreatedAt: string }
+type ServiceJobMaterial = { JobMaterialId: number; LineNumber: number; ProductId: number; Sku: string; ProductName: string; UnitCost: number; UnitOfMeasure: string; QuantityRequired: number; QuantityUsed: number | null; LineTotal: number }
+type ServiceJobDetail = ServiceJob & { CustomerId: number; CustomerEmail: string | null; CustomerPhone: string | null; materials: ServiceJobMaterial[] }
+type DraftMaterial = { tempId: number; productId: string; quantity: string }
 
 // ─── API Helper ───────────────────────────────────────────────────────────────
 function makeApi(token: string) {
@@ -56,8 +62,8 @@ function initials(name: string) { return name.split(' ').map(w => w[0]).join('')
 function Badge({ status }: { status: string }) {
   const map: Record<string, string> = {
     PAID: 'badge-green', RECEIVED: 'badge-green', COMPLETED: 'badge-green',
-    UNPAID: 'badge-amber', PARTIAL: 'badge-amber', SHIPPED: 'badge-amber',
-    OPEN: 'badge-blue', CONFIRMED: 'badge-blue',
+    UNPAID: 'badge-amber', PARTIAL: 'badge-amber', SHIPPED: 'badge-amber', PENDING: 'badge-amber',
+    OPEN: 'badge-blue', CONFIRMED: 'badge-blue', IN_PROGRESS: 'badge-blue',
     DRAFT: 'badge-muted', CANCELLED: 'badge-muted',
   }
   return <span className={`badge ${map[status] ?? 'badge-muted'}`}>{status}</span>
@@ -143,6 +149,7 @@ function Sidebar({ page, setPage, user, onLogout }: { page: Page; setPage: (p: P
     { id: 'sales-orders',    icon: '🛒', label: 'Sales Orders' },
     { id: 'invoices',        icon: '🧾', label: 'Invoices' },
     { id: 'purchase-orders', icon: '📋', label: 'Purchase Orders' },
+    { id: 'service-jobs',    icon: '🔧', label: 'Service Jobs' },
   ]
 
   return (
@@ -515,6 +522,278 @@ function ProductsPage({ api }: { api: ReturnType<typeof makeApi> }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SERVICE JOBS PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
+  const [jobs,        setJobs]       = useState<ServiceJob[]>([])
+  const [loading,     setLoading]    = useState(true)
+  const [filter,      setFilter]     = useState<string | null>(null)
+  const [selected,    setSelected]   = useState<ServiceJobDetail | null>(null)
+  const [detailLoading, setDL]       = useState(false)
+  const [customers,   setCustomers]  = useState<LookupCustomer[]>([])
+  const [locations,   setLocations]  = useState<LookupLocation[]>([])
+  const [allProducts, setAllProducts]= useState<Product[]>([])
+  const [showForm,    setShowForm]   = useState(false)
+  const [message,     setMessage]    = useState<{ text: string; ok: boolean } | null>(null)
+  const [saving,      setSaving]     = useState(false)
+  const [completing,  setCompleting] = useState(false)
+  const [draft,       setDraft]      = useState({ customerId: '', locationId: '', assigneeName: '', scheduledDate: '', notes: '' })
+  const [draftMats,   setDraftMats]  = useState<DraftMaterial[]>([{ tempId: 1, productId: '', quantity: '1' }])
+
+  useEffect(() => { loadAll() }, [])
+
+  async function loadAll() {
+    setLoading(true)
+    try {
+      const [jobsRes, lookupsRes, prodsRes] = await Promise.all([
+        api<ServiceJob[]>('/api/service-jobs'),
+        api<LookupData>('/api/lookups'),
+        api<Product[]>('/api/products?pageSize=50&sortBy=name'),
+      ])
+      setJobs(jobsRes.data ?? [])
+      const lk = lookupsRes.data
+      setCustomers((lk as any)?.customers ?? [])
+      setLocations(lk?.locations ?? [])
+      setAllProducts(prodsRes.data ?? [])
+    } finally { setLoading(false) }
+  }
+
+  async function loadDetail(id: number) {
+    setDL(true); setSelected(null)
+    try { const r = await api<ServiceJobDetail>(`/api/service-jobs/${id}`); setSelected(r.data) }
+    finally { setDL(false) }
+  }
+
+  async function submitJob(e: React.FormEvent) {
+    e.preventDefault()
+    const mats = draftMats.filter(m => m.productId && Number(m.quantity) > 0)
+    if (mats.length === 0) { setMessage({ text: 'Add at least one material line.', ok: false }); return }
+    setSaving(true); setMessage(null)
+    try {
+      const r = await api<{ jobId: number; jobNumber: string }>('/api/service-jobs', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: Number(draft.customerId), locationId: Number(draft.locationId),
+          assigneeName: draft.assigneeName, scheduledDate: draft.scheduledDate, notes: draft.notes,
+          materials: mats.map((m, i) => ({ productId: Number(m.productId), quantity: Number(m.quantity), lineNumber: i + 1 }))
+        })
+      })
+      setMessage({ text: `Job ${r.data?.jobNumber} created! Awaiting assignment.`, ok: true })
+      setShowForm(false)
+      setDraft({ customerId: '', locationId: '', assigneeName: '', scheduledDate: '', notes: '' })
+      setDraftMats([{ tempId: Date.now(), productId: '', quantity: '1' }])
+      loadAll()
+    } catch (err) { setMessage({ text: String(err instanceof Error ? err.message : err), ok: false }) }
+    finally { setSaving(false) }
+  }
+
+  async function startJob(jobId: number) {
+    try {
+      await api(`/api/service-jobs/${jobId}/start`, { method: 'PATCH' })
+      setMessage({ text: 'Job started and marked In Progress.', ok: true })
+      loadAll(); if (selected?.JobId === jobId) loadDetail(jobId)
+    } catch (err) { setMessage({ text: String(err instanceof Error ? err.message : err), ok: false }) }
+  }
+
+  async function completeJob(jobId: number) {
+    if (!window.confirm('Mark this job COMPLETE? All bill-of-materials items will be deducted from inventory.')) return
+    setCompleting(true); setMessage(null)
+    try {
+      const r = await api<{ completed: boolean; materialsDeducted: number }>(`/api/service-jobs/${jobId}/complete`, { method: 'PATCH' })
+      setMessage({ text: `✅ Job completed! ${r.data?.materialsDeducted ?? 0} material line(s) deducted from inventory.`, ok: true })
+      loadAll(); loadDetail(jobId)
+    } catch (err) { setMessage({ text: String(err instanceof Error ? err.message : err), ok: false }) }
+    finally { setCompleting(false) }
+  }
+
+  const displayed = useMemo(() => filter ? jobs.filter(j => j.JobStatus === filter) : jobs, [jobs, filter])
+  const byStatus  = useMemo(() => jobs.reduce((acc, j) => { acc[j.JobStatus] = (acc[j.JobStatus] ?? 0) + 1; return acc }, {} as Record<string, number>), [jobs])
+  const statusColor: Record<string, string> = { PENDING: 'var(--amber)', IN_PROGRESS: 'var(--blue)', COMPLETED: 'var(--green)', CANCELLED: 'var(--text-muted)' }
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <h1>🔧 Service Jobs</h1>
+        <p>Installation &amp; service work orders — materials auto-deducted from inventory on job completion</p>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
+        <div className="stat-card" style={{ '--stat-color': 'var(--text-muted)', cursor: 'pointer', opacity: filter === null ? 1 : 0.6 } as React.CSSProperties} onClick={() => setFilter(null)}>
+          <div className="stat-value">{jobs.length}</div>
+          <div className="stat-label">All Jobs</div>
+        </div>
+        {(['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const).map(s => (
+          <div key={s} className="stat-card" style={{ '--stat-color': statusColor[s], cursor: 'pointer', opacity: filter === s ? 1 : (filter ? 0.6 : 1) } as React.CSSProperties} onClick={() => setFilter(s)}>
+            <div className="stat-value">{byStatus[s] ?? 0}</div>
+            <div className="stat-label">{s.replace('_', ' ')}</div>
+          </div>
+        ))}
+      </div>
+
+      {message && <div className={`alert ${message.ok ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: '1rem' }}>{message.text}</div>}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 400px', gap: '1.25rem', alignItems: 'start' }}>
+        {/* Left: job list */}
+        <div className="card">
+          <div className="section-head">
+            <h2>Work Orders</h2>
+            <button className="btn btn-sm" onClick={() => { setShowForm(v => !v); setMessage(null) }}>
+              {showForm ? '✕ Cancel' : '➕ New Service Job'}
+            </button>
+          </div>
+
+          {showForm && (
+            <form className="form-grid" onSubmit={submitJob} style={{ marginBottom: '1.25rem', background: 'var(--surface2)', padding: '1rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border2)' }}>
+              <p style={{ margin: '0 0 0.75rem', fontWeight: 600, fontSize: '0.86rem', color: 'var(--text)' }}>📋 New Service Job</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                <label>Customer
+                  <select required value={draft.customerId} onChange={e => setDraft(s => ({ ...s, customerId: e.target.value }))}>
+                    <option value="">Select customer…</option>
+                    {customers.map(c => <option key={c.CustomerId} value={c.CustomerId}>{c.Name}</option>)}
+                  </select>
+                </label>
+                <label>Location (Stock Source)
+                  <select required value={draft.locationId} onChange={e => setDraft(s => ({ ...s, locationId: e.target.value }))}>
+                    <option value="">Select location…</option>
+                    {locations.map(l => <option key={l.LocationId} value={l.LocationId}>{l.Code} — {l.Name}</option>)}
+                  </select>
+                </label>
+                <label>Assigned Technician
+                  <input value={draft.assigneeName} onChange={e => setDraft(s => ({ ...s, assigneeName: e.target.value }))} placeholder="e.g. Juan dela Cruz" />
+                </label>
+                <label>Scheduled Date
+                  <input type="datetime-local" required value={draft.scheduledDate} onChange={e => setDraft(s => ({ ...s, scheduledDate: e.target.value }))} />
+                </label>
+              </div>
+              <label>Notes <textarea rows={2} value={draft.notes} onChange={e => setDraft(s => ({ ...s, notes: e.target.value }))} placeholder="Job description or special instructions…" /></label>
+
+              {/* Bill of Materials */}
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)' }}>Bill of Materials</p>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDraftMats(m => [...m, { tempId: Date.now(), productId: '', quantity: '1' }])}>+ Add Row</button>
+                </div>
+                {draftMats.map(mat => (
+                  <div key={mat.tempId} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 30px', gap: '0.4rem', marginBottom: '0.4rem' }}>
+                    <select required value={mat.productId} onChange={e => setDraftMats(m => m.map(x => x.tempId === mat.tempId ? { ...x, productId: e.target.value } : x))}>
+                      <option value="">Select product…</option>
+                      {allProducts.map(p => <option key={p.ProductId} value={p.ProductId}>{p.Sku} — {p.Name}</option>)}
+                    </select>
+                    <input type="number" min="1" required value={mat.quantity} placeholder="Qty"
+                      onChange={e => setDraftMats(m => m.map(x => x.tempId === mat.tempId ? { ...x, quantity: e.target.value } : x))} />
+                    <button type="button" className="btn btn-danger btn-sm" style={{ padding: '0.35rem 0.5rem' }}
+                      onClick={() => setDraftMats(m => m.filter(x => x.tempId !== mat.tempId))} disabled={draftMats.length === 1}>✕</button>
+                  </div>
+                ))}
+              </div>
+              <button className="btn" disabled={saving}>{saving ? '⏳ Creating…' : 'Create Job'}</button>
+            </form>
+          )}
+
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Job #</th><th>Customer</th><th>Loc</th><th>Technician</th><th>Scheduled</th><th>Items</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {loading && <tr><td colSpan={8} className="text-muted">Loading…</td></tr>}
+                {!loading && displayed.length === 0 && (
+                  <tr><td colSpan={8}>
+                    <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>🔧</div>
+                      <p style={{ margin: '0 0 0.75rem' }}>No service jobs yet.</p>
+                      <button className="btn btn-sm" onClick={() => setShowForm(true)}>➕ Create First Job</button>
+                    </div>
+                  </td></tr>
+                )}
+                {!loading && displayed.map(j => (
+                  <tr key={j.JobId} style={{ cursor: 'pointer' }} onClick={() => loadDetail(j.JobId)}>
+                    <td className="mono">{j.JobNumber}</td>
+                    <td>{j.CustomerName}</td>
+                    <td className="mono">{j.LocationCode}</td>
+                    <td>{j.AssigneeName ?? <span className="text-muted">—</span>}</td>
+                    <td>{fmtDate(j.ScheduledDate)}</td>
+                    <td style={{ textAlign: 'center' }}>{j.MaterialCount}</td>
+                    <td><Badge status={j.JobStatus} /></td>
+                    <td><button className="btn btn-sm" onClick={e => { e.stopPropagation(); loadDetail(j.JobId) }}>View</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Right: detail panel */}
+        <div className="card">
+          <h2 style={{ margin: '0 0 1rem' }}>Job Details</h2>
+          {!selected && !detailLoading && <p className="text-muted" style={{ fontSize: '0.85rem' }}>Click on any job row to view its details, materials list, and available actions.</p>}
+          {detailLoading && <p className="text-muted">Loading…</p>}
+          {selected && !detailLoading && (
+            <>
+              <div className="detail-panel" style={{ marginBottom: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.4rem' }}>
+                  <h3 style={{ margin: 0 }}>{selected.JobNumber}</h3>
+                  <Badge status={selected.JobStatus} />
+                </div>
+                <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>{selected.CustomerName}</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', fontSize: '0.82rem' }}>
+                  <div><span className="text-muted">Location</span><br /><strong>{selected.LocationCode} — {selected.LocationName}</strong></div>
+                  <div><span className="text-muted">Technician</span><br /><strong>{selected.AssigneeName ?? '—'}</strong></div>
+                  <div><span className="text-muted">Scheduled</span><br /><strong>{fmtDate(selected.ScheduledDate)}</strong></div>
+                  <div><span className="text-muted">Completed</span><br /><strong>{selected.CompletedDate ? fmtDate(selected.CompletedDate) : '—'}</strong></div>
+                  <div><span className="text-muted">Est. Cost</span><br /><strong style={{ color: 'var(--amber)' }}>{fmt(selected.materials.reduce((s, m) => s + Number(m.LineTotal), 0))}</strong></div>
+                  <div><span className="text-muted">Manager</span><br /><strong>{selected.ManagerName ?? '—'}</strong></div>
+                </div>
+                {selected.Notes && <p style={{ marginTop: '0.75rem', marginBottom: 0, fontSize: '0.82rem', color: 'var(--text-muted)', borderTop: '1px solid var(--border)', paddingTop: '0.5rem' }}>📝 {selected.Notes}</p>}
+              </div>
+
+              <p className="text-muted" style={{ fontSize: '0.75rem', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', margin: '0 0 0.5rem' }}>
+                Bill of Materials {selected.JobStatus === 'COMPLETED' ? '✓ Deducted' : '— Pending'}
+              </p>
+              <div className="table-wrap" style={{ marginBottom: '1rem' }}>
+                <table>
+                  <thead><tr><th>SKU</th><th>Product</th><th>Qty</th><th>Cost</th></tr></thead>
+                  <tbody>
+                    {selected.materials.map(m => (
+                      <tr key={m.JobMaterialId}>
+                        <td className="mono">{m.Sku}</td>
+                        <td style={{ fontSize: '0.8rem' }}>{m.ProductName}</td>
+                        <td style={{ textAlign: 'center', fontWeight: 700, color: m.QuantityUsed !== null ? 'var(--green)' : 'var(--text)' }}>
+                          {m.QuantityRequired}{m.QuantityUsed !== null && ' ✓'}
+                        </td>
+                        <td>{fmt(Number(m.LineTotal))}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border2)' }}>
+                      <td colSpan={3} style={{ textAlign: 'right', color: 'var(--text-muted)', fontSize: '0.78rem' }}>TOTAL EST. COST</td>
+                      <td style={{ color: 'var(--amber)' }}>{fmt(selected.materials.reduce((s, m) => s + Number(m.LineTotal), 0))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {selected.JobStatus === 'PENDING' && (
+                <button className="btn btn-ghost" style={{ width: '100%', marginBottom: '0.5rem' }} onClick={() => startJob(selected.JobId)}>▶ Start Job</button>
+              )}
+              {(selected.JobStatus === 'PENDING' || selected.JobStatus === 'IN_PROGRESS') && (
+                <button className="btn btn-green" style={{ width: '100%' }} disabled={completing} onClick={() => completeJob(selected.JobId)}>
+                  {completing ? '⏳ Processing…' : '✅ Mark Complete & Deduct Stock'}
+                </button>
+              )}
+              {selected.JobStatus === 'COMPLETED' && (
+                <div className="alert alert-success" style={{ marginBottom: 0, justifyContent: 'center' }}>✅ All materials deducted from inventory</div>
+              )}
+              {selected.JobStatus === 'CANCELLED' && (
+                <div className="alert alert-warning" style={{ marginBottom: 0 }}>⚠ This job was cancelled. No stock was deducted.</div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // SALES ORDERS PAGE
 // ═════════════════════════════════════════════════════════════════════════════
 function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
@@ -763,6 +1042,7 @@ export default function App() {
     'sales-orders':    <SalesOrdersPage api={api} />,
     'invoices':        <InvoicesPage api={api} />,
     'purchase-orders': <PurchaseOrdersPage api={api} />,
+    'service-jobs':    <ServiceJobsPage api={api} />,
   }
 
   return (

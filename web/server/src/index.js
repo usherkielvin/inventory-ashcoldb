@@ -174,7 +174,8 @@ app.get('/api/lookups', requireAuth, async (req, res) => {
     const categories = await p.request().query(`SELECT CategoryId, Name FROM dbo.ProductCategories WHERE IsDeleted = 0 ORDER BY Name`)
     const suppliers  = await p.request().query(`SELECT SupplierId, Name FROM dbo.Suppliers WHERE IsDeleted = 0 ORDER BY Name`)
     const locations  = await p.request().query(`SELECT LocationId, Code, Name, LocationType FROM dbo.Locations WHERE IsDeleted = 0 AND IsActive = 1 ORDER BY Name`)
-    res.json(envelope({ data: { categories: categories.recordset, suppliers: suppliers.recordset, locations: locations.recordset } }))
+    const customers  = await p.request().query(`SELECT CustomerId, Name, Email, Phone FROM dbo.Customers WHERE IsDeleted = 0 ORDER BY Name`)
+    res.json(envelope({ data: { categories: categories.recordset, suppliers: suppliers.recordset, locations: locations.recordset, customers: customers.recordset } }))
   } catch (e) {
     console.error(e)
     res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
@@ -426,6 +427,228 @@ app.get('/api/low-stock', requireAuth, async (req, res) => {
   } catch (e) {
     console.error(e)
     res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+// =============================================================================
+// SERVICE JOBS (protected)
+// =============================================================================
+
+app.get('/api/service-jobs', requireAuth, async (req, res) => {
+  try {
+    const p = await getPool()
+    const result = await p.request().query(`
+      SELECT
+        sj.JobId, sj.JobNumber, sj.JobStatus, sj.ScheduledDate, sj.CompletedDate,
+        sj.Notes, sj.AssigneeName, sj.CreatedAt,
+        c.Name  AS CustomerName,
+        l.Name  AS LocationName, l.Code AS LocationCode,
+        u.FullName AS ManagerName,
+        (SELECT COUNT(*) FROM dbo.ServiceJobMaterials m WHERE m.JobId = sj.JobId) AS MaterialCount,
+        ISNULL((SELECT SUM(p2.UnitCost * m2.QuantityRequired)
+                FROM dbo.ServiceJobMaterials m2
+                INNER JOIN dbo.Products p2 ON p2.ProductId = m2.ProductId
+                WHERE m2.JobId = sj.JobId), 0) AS EstimatedCost
+      FROM dbo.ServiceJobs sj
+      INNER JOIN dbo.Customers c ON c.CustomerId = sj.CustomerId
+      INNER JOIN dbo.Locations l ON l.LocationId  = sj.LocationId
+      LEFT  JOIN dbo.Users    u ON u.UserId       = sj.ManagedByUserId
+      WHERE sj.IsDeleted = 0
+      ORDER BY sj.CreatedAt DESC;
+    `)
+    res.json(envelope({ data: result.recordset }))
+  } catch (e) {
+    console.error(e)
+    res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.get('/api/service-jobs/:id', requireAuth, async (req, res) => {
+  try {
+    const jobId = asInt(req.params.id)
+    if (!jobId) return res.status(400).json(envelope({ error: { message: 'Invalid jobId' } }))
+    const p    = await getPool()
+    const req2 = p.request()
+    req2.input('jobId', sql.BigInt, jobId)
+    const result = await req2.query(`
+      SELECT sj.JobId, sj.JobNumber, sj.JobStatus, sj.ScheduledDate, sj.CompletedDate,
+             sj.Notes, sj.AssigneeName, sj.CreatedAt, sj.CustomerId, sj.LocationId,
+             c.Name  AS CustomerName, c.Email AS CustomerEmail, c.Phone AS CustomerPhone,
+             l.Name  AS LocationName, l.Code AS LocationCode,
+             u.FullName AS ManagerName,
+             ISNULL((SELECT SUM(p2.UnitCost * m2.QuantityRequired)
+                     FROM dbo.ServiceJobMaterials m2
+                     INNER JOIN dbo.Products p2 ON p2.ProductId = m2.ProductId
+                     WHERE m2.JobId = sj.JobId), 0) AS EstimatedCost
+      FROM dbo.ServiceJobs sj
+      INNER JOIN dbo.Customers c ON c.CustomerId = sj.CustomerId
+      INNER JOIN dbo.Locations l ON l.LocationId  = sj.LocationId
+      LEFT  JOIN dbo.Users    u ON u.UserId       = sj.ManagedByUserId
+      WHERE sj.JobId = @jobId AND sj.IsDeleted = 0;
+
+      SELECT m.JobMaterialId, m.LineNumber, m.QuantityRequired, m.QuantityUsed,
+             p.ProductId, p.Sku, p.Name AS ProductName,
+             p.UnitCost, p.UnitOfMeasure,
+             CAST(p.UnitCost * m.QuantityRequired AS DECIMAL(18,4)) AS LineTotal
+      FROM dbo.ServiceJobMaterials m
+      INNER JOIN dbo.Products p ON p.ProductId = m.ProductId
+      WHERE m.JobId = @jobId
+      ORDER BY m.LineNumber;
+    `)
+    const job = result.recordsets[0]?.[0]
+    if (!job) return res.status(404).json(envelope({ error: { message: 'Service job not found' } }))
+    return res.json(envelope({ data: { ...job, materials: result.recordsets[1] || [] } }))
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.post('/api/service-jobs', requireAuth, async (req, res) => {
+  try {
+    const payload       = req.body || {}
+    const customerId    = asInt(payload.customerId)
+    const locationId    = asInt(payload.locationId)
+    const assigneeName  = asNonEmptyString(payload.assigneeName)
+    const scheduledDate = asNonEmptyString(payload.scheduledDate)
+    const notes         = asNonEmptyString(payload.notes) || null
+    const materials     = Array.isArray(payload.materials) ? payload.materials : []
+
+    if (!customerId || !locationId || !scheduledDate)
+      return res.status(400).json(envelope({ error: { message: 'customerId, locationId, and scheduledDate are required' } }))
+    if (materials.length === 0)
+      return res.status(400).json(envelope({ error: { message: 'At least one material line is required' } }))
+
+    const p           = await getPool()
+    const transaction = new sql.Transaction(p)
+    await transaction.begin()
+    try {
+      const yearStr    = new Date().getFullYear()
+      const req1       = new sql.Request(transaction)
+      const countRes   = await req1.query(`SELECT COUNT(*) AS Cnt FROM dbo.ServiceJobs`)
+      const seq        = String(countRes.recordset[0].Cnt + 1).padStart(3, '0')
+      const jobNumber  = `SJ-${yearStr}-${seq}`
+
+      const req2 = new sql.Request(transaction)
+      req2.input('jobNumber',    sql.NVarChar(32),  jobNumber)
+      req2.input('customerId',   sql.Int,           customerId)
+      req2.input('locationId',   sql.Int,           locationId)
+      req2.input('assigneeName', sql.NVarChar(200), assigneeName || null)
+      req2.input('scheduledDate', sql.DateTime2,    new Date(scheduledDate))
+      req2.input('notes',        sql.NVarChar(500), notes)
+      const inserted = await req2.query(`
+        INSERT INTO dbo.ServiceJobs (JobNumber, CustomerId, LocationId, AssigneeName, ScheduledDate, Notes)
+        OUTPUT inserted.JobId
+        VALUES (@jobNumber, @customerId, @locationId, @assigneeName, @scheduledDate, @notes)
+      `)
+      const jobId = inserted.recordset[0]?.JobId
+
+      for (let i = 0; i < materials.length; i++) {
+        const mat       = materials[i]
+        const productId = Number(mat.productId)
+        const qty       = Number(mat.quantity)
+        if (!productId || qty <= 0) continue
+        const req3 = new sql.Request(transaction)
+        req3.input('jobId',      sql.BigInt, jobId)
+        req3.input('lineNumber', sql.Int,    i + 1)
+        req3.input('productId',  sql.Int,    productId)
+        req3.input('qty',        sql.Int,    qty)
+        await req3.query(`
+          INSERT INTO dbo.ServiceJobMaterials (JobId, LineNumber, ProductId, QuantityRequired)
+          VALUES (@jobId, @lineNumber, @productId, @qty)
+        `)
+      }
+
+      await transaction.commit()
+      return res.status(201).json(envelope({ data: { jobId, jobNumber } }))
+    } catch (innerErr) {
+      await transaction.rollback().catch(() => {})
+      throw innerErr
+    }
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.patch('/api/service-jobs/:id/start', requireAuth, async (req, res) => {
+  try {
+    const jobId = asInt(req.params.id)
+    if (!jobId) return res.status(400).json(envelope({ error: { message: 'Invalid jobId' } }))
+    const p    = await getPool()
+    const req2 = p.request()
+    req2.input('jobId', sql.BigInt, jobId)
+    const check = await req2.query(`SELECT JobStatus FROM dbo.ServiceJobs WHERE JobId = @jobId AND IsDeleted = 0`)
+    if (!check.recordset[0]) return res.status(404).json(envelope({ error: { message: 'Job not found' } }))
+    if (check.recordset[0].JobStatus !== 'PENDING')
+      return res.status(409).json(envelope({ error: { message: 'Job must be PENDING to start' } }))
+    const req3 = p.request()
+    req3.input('jobId', sql.BigInt, jobId)
+    await req3.query(`UPDATE dbo.ServiceJobs SET JobStatus = N'IN_PROGRESS' WHERE JobId = @jobId`)
+    return res.json(envelope({ data: { started: true } }))
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
+  }
+})
+
+app.patch('/api/service-jobs/:id/complete', requireAuth, async (req, res) => {
+  try {
+    const jobId = asInt(req.params.id)
+    if (!jobId) return res.status(400).json(envelope({ error: { message: 'Invalid jobId' } }))
+    const p           = await getPool()
+    const transaction = new sql.Transaction(p)
+    await transaction.begin()
+    try {
+      const req1 = new sql.Request(transaction)
+      req1.input('jobId', sql.BigInt, jobId)
+      const jobRes = await req1.query(`SELECT JobId, JobStatus, LocationId FROM dbo.ServiceJobs WHERE JobId = @jobId AND IsDeleted = 0`)
+      const job    = jobRes.recordset[0]
+      if (!job) { await transaction.rollback(); return res.status(404).json(envelope({ error: { message: 'Job not found' } })) }
+      if (!['PENDING', 'IN_PROGRESS'].includes(job.JobStatus)) {
+        await transaction.rollback()
+        return res.status(409).json(envelope({ error: { message: `Cannot complete job with status: ${job.JobStatus}` } }))
+      }
+
+      const req2   = new sql.Request(transaction)
+      req2.input('jobId', sql.BigInt, jobId)
+      const matsRes = await req2.query(`SELECT ProductId, QuantityRequired, JobMaterialId FROM dbo.ServiceJobMaterials WHERE JobId = @jobId`)
+      const mats    = matsRes.recordset
+
+      for (const mat of mats) {
+        // Insert movement — trigger auto-updates StockLevels
+        const req3 = new sql.Request(transaction)
+        req3.input('productId',  sql.Int,    mat.ProductId)
+        req3.input('locationId', sql.Int,    job.LocationId)
+        req3.input('qty',        sql.Int,    -mat.QuantityRequired)
+        req3.input('refId',      sql.BigInt, jobId)
+        await req3.query(`
+          INSERT INTO dbo.StockMovements
+            (ProductId, LocationId, QuantityDelta, MovementType, ReferenceType, ReferenceId, Note)
+          VALUES
+            (@productId, @locationId, @qty, N'SALE', N'SERVICE_JOB', @refId,
+             N'Auto-deducted: service job completion')
+        `)
+        // Mark qty used
+        const req4 = new sql.Request(transaction)
+        req4.input('matId', sql.BigInt, mat.JobMaterialId)
+        req4.input('qty',   sql.Int,    mat.QuantityRequired)
+        await req4.query(`UPDATE dbo.ServiceJobMaterials SET QuantityUsed = @qty WHERE JobMaterialId = @matId`)
+      }
+
+      const req5 = new sql.Request(transaction)
+      req5.input('jobId', sql.BigInt, jobId)
+      await req5.query(`UPDATE dbo.ServiceJobs SET JobStatus = N'COMPLETED', CompletedDate = SYSDATETIME() WHERE JobId = @jobId`)
+
+      await transaction.commit()
+      return res.json(envelope({ data: { completed: true, materialsDeducted: mats.length } }))
+    } catch (innerErr) {
+      await transaction.rollback().catch(() => {})
+      throw innerErr
+    }
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json(envelope({ error: { message: String(e.message || e) } }))
   }
 })
 
