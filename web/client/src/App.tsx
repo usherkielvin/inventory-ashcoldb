@@ -1,412 +1,406 @@
 import { useEffect, useMemo, useState } from 'react'
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+type Page = 'dashboard' | 'products' | 'sales-orders' | 'invoices' | 'purchase-orders'
+
+type User = { email: string; role: string; fullName: string }
+
 type ApiEnvelope<T> = {
   data: T | null
   error: { message: string; hint?: string } | null
   meta: Record<string, unknown>
 }
 
-type HealthData = { ok: boolean; database?: string; serverVersion?: string }
-
+type HealthData    = { ok: boolean; database?: string; serverVersion?: string }
 type LookupCategory = { CategoryId: number; Name: string }
 type LookupSupplier = { SupplierId: number; Name: string }
 type LookupLocation = { LocationId: number; Code: string; Name: string; LocationType: string }
-type LookupData = { categories: LookupCategory[]; suppliers: LookupSupplier[]; locations: LookupLocation[] }
+type LookupData    = { categories: LookupCategory[]; suppliers: LookupSupplier[]; locations: LookupLocation[] }
 
 type Product = {
-  ProductId: number
-  Sku: string
-  Name: string
-  UnitOfMeasure: string
-  UnitCost: number
-  ListPrice: number
-  ReorderLevel: number
-  CategoryName: string
-  SupplierName: string | null
+  ProductId: number; Sku: string; Name: string; UnitOfMeasure: string
+  UnitCost: number; ListPrice: number; ReorderLevel: number
+  CategoryName: string; SupplierName: string | null
 }
+type ProductListMeta = { page: number; pageSize: number; total: number; totalPages: number; sortBy: string; sortDir: 'asc' | 'desc' }
+type ProductDetails = Product & { Description?: string | null; stockByLocation: Array<{ LocationId: number; Code: string; Name: string; LocationType: string; QuantityOnHand: number }> }
 
-type ProductListMeta = {
-  page: number
-  pageSize: number
-  total: number
-  totalPages: number
-  sortBy: string
-  sortDir: 'asc' | 'desc'
-}
+type DashStats = { TotalProducts: number; LowStockCount: number; PendingOrders: number; TotalRevenuePaid: number; UnpaidInvoices: number }
 
-type ProductDetails = Product & {
-  Description?: string | null
-  stockByLocation: Array<{
-    LocationId: number
-    Code: string
-    Name: string
-    LocationType: string
-    QuantityOnHand: number
-  }>
-}
+type SalesOrder = { SalesOrderId: number; OrderNumber: string; OrderDate: string; OrderStatus: string; CustomerName: string; FulfillmentLocation: string; LinesTotal: number }
 
-type ProductDraft = {
-  sku: string
-  name: string
-  categoryId: string
-  supplierId: string
-  unitOfMeasure: string
-  unitCost: string
-  listPrice: string
-  reorderLevel: string
-  description: string
-}
+type Invoice = { InvoiceId: number; InvoiceNumber: string; InvoiceDate: string; PaymentStatus: string; OrderNumber: string; OrderStatus: string; CustomerName: string; CustomerEmail: string; FulfillingLocation: string; SubTotal: number; TaxAmount: number; TotalAmount: number; SalesRep: string | null }
 
-type AdjustmentDraft = {
-  productId: string
-  locationId: string
-  quantityDelta: string
-  note: string
-}
+type PurchaseOrder = { PurchaseOrderId: number; PoNumber: string; OrderDate: string; Status: string; Supplier: string; ShipToLocation: string; CreatedBy: string | null; LineCount: number; TotalQtyOrdered: number; TotalQtyReceived: number; TotalOrderedValue: number; TotalReceivedValue: number; FulfilmentPct: number }
 
-const EMPTY_PRODUCT: ProductDraft = {
-  sku: '',
-  name: '',
-  categoryId: '',
-  supplierId: '',
-  unitOfMeasure: 'PCS',
-  unitCost: '0',
-  listPrice: '0',
-  reorderLevel: '0',
-  description: '',
-}
+type LowStockItem = { ProductId: number; Sku: string; ProductName: string; Category: string; Supplier: string; ReorderLevel: number; TotalOnHand: number; ShortfallQty: number }
 
-const EMPTY_ADJUSTMENT: AdjustmentDraft = {
-  productId: '',
-  locationId: '',
-  quantityDelta: '',
-  note: '',
-}
-
-async function apiFetch<T>(url: string, init?: RequestInit) {
-  const response = await fetch(url, init)
-  const payload = (await response.json().catch(() => ({}))) as Partial<ApiEnvelope<T>>
-  if (!response.ok) {
-    throw new Error(payload.error?.message || response.statusText || 'Request failed')
+// ─── API Helper ───────────────────────────────────────────────────────────────
+function makeApi(token: string) {
+  return async function apiFetch<T>(url: string, init?: RequestInit): Promise<ApiEnvelope<T>> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(init?.headers as Record<string, string>) }
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const response = await fetch(url, { ...init, headers })
+    const payload = (await response.json().catch(() => ({}))) as Partial<ApiEnvelope<T>>
+    if (!response.ok) throw new Error(payload.error?.message || response.statusText || 'Request failed')
+    return payload as ApiEnvelope<T>
   }
-  return payload as ApiEnvelope<T>
 }
 
-export default function App() {
-  const [health, setHealth] = useState<HealthData | null>(null)
-  const [healthLoading, setHealthLoading] = useState(true)
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function fmt(n: number) { return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(n) }
+function fmtDate(s: string) { return new Date(s).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) }
+function initials(name: string) { return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() }
 
-  const [lookups, setLookups] = useState<LookupData>({ categories: [], suppliers: [], locations: [] })
-  const [products, setProducts] = useState<Product[]>([])
-  const [listMeta, setListMeta] = useState<ProductListMeta>({
-    page: 1,
-    pageSize: 10,
-    total: 0,
-    totalPages: 1,
-    sortBy: 'Sku',
-    sortDir: 'asc',
-  })
-  const [listLoading, setListLoading] = useState(false)
-  const [apiError, setApiError] = useState<string | null>(null)
+// ─── Status Badge ─────────────────────────────────────────────────────────────
+function Badge({ status }: { status: string }) {
+  const map: Record<string, string> = {
+    PAID: 'badge-green', RECEIVED: 'badge-green', COMPLETED: 'badge-green',
+    UNPAID: 'badge-amber', PARTIAL: 'badge-amber', SHIPPED: 'badge-amber',
+    OPEN: 'badge-blue', CONFIRMED: 'badge-blue',
+    DRAFT: 'badge-muted', CANCELLED: 'badge-muted',
+  }
+  return <span className={`badge ${map[status] ?? 'badge-muted'}`}>{status}</span>
+}
 
-  const [searchInput, setSearchInput] = useState('')
-  const [query, setQuery] = useState({
-    q: '',
-    categoryId: '',
-    supplierId: '',
-    sortBy: 'sku',
-    sortDir: 'asc',
-    page: 1,
-  })
-
-  const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [selectedProduct, setSelectedProduct] = useState<ProductDetails | null>(null)
-  const [detailsLoading, setDetailsLoading] = useState(false)
-
-  const [productDraft, setProductDraft] = useState<ProductDraft>(EMPTY_PRODUCT)
-  const [productSaving, setProductSaving] = useState(false)
-  const [adjustmentDraft, setAdjustmentDraft] = useState<AdjustmentDraft>(EMPTY_ADJUSTMENT)
-  const [adjustmentSaving, setAdjustmentSaving] = useState(false)
-  const [actionMessage, setActionMessage] = useState<string | null>(null)
-
-  const startIndex = useMemo(() => {
-    if (listMeta.total === 0) return 0
-    return (listMeta.page - 1) * listMeta.pageSize + 1
-  }, [listMeta.page, listMeta.pageSize, listMeta.total])
-
-  const endIndex = useMemo(
-    () => Math.min(listMeta.total, listMeta.page * listMeta.pageSize),
-    [listMeta.page, listMeta.pageSize, listMeta.total],
+// ─── Progress Bar ─────────────────────────────────────────────────────────────
+function ProgressBar({ pct }: { pct: number }) {
+  const color = pct >= 100 ? 'var(--green)' : pct === 0 ? 'var(--text-dim)' : 'var(--amber)'
+  return (
+    <div className="progress-wrap">
+      <div className="progress-bar"><div className="progress-fill" style={{ width: `${Math.min(pct,100)}%`, background: color }} /></div>
+      <span className="progress-label">{pct.toFixed(0)}%</span>
+    </div>
   )
+}
 
-  async function loadHealth() {
-    setHealthLoading(true)
+// ═════════════════════════════════════════════════════════════════════════════
+// LOGIN PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function LoginPage({ onLogin }: { onLogin: (token: string, user: User) => void }) {
+  const [email,    setEmail]    = useState('admin@ashcol.local')
+  const [password, setPassword] = useState('')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState('')
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setLoading(true); setError('')
     try {
-      const res = await apiFetch<HealthData>('/api/health')
-      setHealth(res.data)
-      setApiError(null)
-    } catch (error) {
-      setHealth({ ok: false })
-      setApiError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setHealthLoading(false)
-    }
-  }
-
-  async function loadLookups() {
-    const res = await apiFetch<LookupData>('/api/lookups')
-    setLookups(res.data || { categories: [], suppliers: [], locations: [] })
-  }
-
-  async function loadProducts(nextQuery = query) {
-    setListLoading(true)
-    try {
-      const params = new URLSearchParams({
-        page: String(nextQuery.page),
-        pageSize: '10',
-        sortBy: nextQuery.sortBy,
-        sortDir: nextQuery.sortDir,
-      })
-      if (nextQuery.q) params.set('q', nextQuery.q)
-      if (nextQuery.categoryId) params.set('categoryId', nextQuery.categoryId)
-      if (nextQuery.supplierId) params.set('supplierId', nextQuery.supplierId)
-      const res = await apiFetch<Product[]>(`/api/products?${params.toString()}`)
-      const meta = (res.meta || {}) as Partial<ProductListMeta>
-      setProducts(res.data || [])
-      setListMeta({
-        page: Number(meta.page || nextQuery.page || 1),
-        pageSize: Number(meta.pageSize || 10),
-        total: Number(meta.total || 0),
-        totalPages: Number(meta.totalPages || 1),
-        sortBy: String(meta.sortBy || 'Sku'),
-        sortDir: String(meta.sortDir || 'asc') as 'asc' | 'desc',
-      })
-      setApiError(null)
-    } catch (error) {
-      setApiError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setListLoading(false)
-    }
-  }
-
-  async function loadProductDetails(productId: number) {
-    setSelectedId(productId)
-    setDetailsLoading(true)
-    try {
-      const res = await apiFetch<ProductDetails>(`/api/products/${productId}`)
-      setSelectedProduct(res.data)
-      setApiError(null)
-    } catch (error) {
-      setSelectedProduct(null)
-      setApiError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setDetailsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void loadHealth()
-    void loadLookups()
-    void loadProducts()
-  }, [])
-
-  const submitFilters = () => {
-    const next = {
-      ...query,
-      q: searchInput.trim(),
-      page: 1,
-    }
-    setQuery(next)
-    void loadProducts(next)
-  }
-
-  const resetFilters = () => {
-    const next = {
-      q: '',
-      categoryId: '',
-      supplierId: '',
-      sortBy: 'sku',
-      sortDir: 'asc',
-      page: 1,
-    }
-    setSearchInput('')
-    setQuery(next)
-    void loadProducts(next)
-  }
-
-  const setSort = (sortBy: string) => {
-    const nextDir =
-      query.sortBy === sortBy && query.sortDir === 'asc'
-        ? 'desc'
-        : 'asc'
-    const next = { ...query, sortBy, sortDir: nextDir, page: 1 }
-    setQuery(next)
-    void loadProducts(next)
-  }
-
-  const goToPage = (page: number) => {
-    const safe = Math.max(1, Math.min(listMeta.totalPages, page))
-    const next = { ...query, page: safe }
-    setQuery(next)
-    void loadProducts(next)
-  }
-
-  async function submitProduct(event: React.FormEvent) {
-    event.preventDefault()
-    setProductSaving(true)
-    setActionMessage(null)
-    try {
-      await apiFetch<{ productId: number }>('/api/products', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sku: productDraft.sku,
-          name: productDraft.name,
-          categoryId: Number(productDraft.categoryId),
-          supplierId: productDraft.supplierId ? Number(productDraft.supplierId) : null,
-          unitOfMeasure: productDraft.unitOfMeasure,
-          unitCost: Number(productDraft.unitCost || 0),
-          listPrice: Number(productDraft.listPrice || 0),
-          reorderLevel: Number(productDraft.reorderLevel || 0),
-          description: productDraft.description,
-        }),
-      })
-      setProductDraft(EMPTY_PRODUCT)
-      setActionMessage('Product created successfully.')
-      void loadProducts()
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setProductSaving(false)
-    }
-  }
-
-  async function submitAdjustment(event: React.FormEvent) {
-    event.preventDefault()
-    setAdjustmentSaving(true)
-    setActionMessage(null)
-    try {
-      await apiFetch<{ movementId: number }>('/api/stock-adjustments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productId: Number(adjustmentDraft.productId),
-          locationId: Number(adjustmentDraft.locationId),
-          quantityDelta: Number(adjustmentDraft.quantityDelta),
-          note: adjustmentDraft.note,
-        }),
-      })
-      setAdjustmentDraft(EMPTY_ADJUSTMENT)
-      setActionMessage('Stock adjustment saved.')
-      void loadProducts()
-      if (selectedId) {
-        void loadProductDetails(selectedId)
-      }
-    } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setAdjustmentSaving(false)
-    }
+      const res  = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) })
+      const data = await res.json() as ApiEnvelope<{ token: string; email: string; role: string; fullName: string }>
+      if (!res.ok || !data.data) { setError(data.error?.message ?? 'Login failed'); return }
+      onLogin(data.data.token, { email: data.data.email, role: data.data.role, fullName: data.data.fullName })
+    } catch { setError('Cannot connect to API. Make sure npm run dev is running.') }
+    finally { setLoading(false) }
   }
 
   return (
-    <div className="app">
-      <header className="hero card">
-        <p className="eyebrow">SQL Server + Express API</p>
-        <h1>Inventory Dashboard</h1>
-        <p className="muted">
-          Feature-first MVP: browse, filter, inspect product details, add products, and post stock adjustments.
-        </p>
-      </header>
-
-      <section className="card">
-        <h2>Health / Status</h2>
-        {healthLoading && <p className="muted">Checking API and database...</p>}
-        {!healthLoading && health?.ok && (
-          <ul className="health-list">
-            <li>Connected to <strong>{health.database}</strong></li>
-            <li>{health.serverVersion}</li>
-          </ul>
-        )}
-        {!healthLoading && !health?.ok && <p className="error">API unavailable: {apiError || 'Unknown error'}</p>}
-      </section>
-
-      <section className="card">
-        <div className="section-head">
-          <h2>Products</h2>
-          <button className="btn ghost" onClick={() => void loadProducts()} disabled={listLoading}>Refresh</button>
+    <div className="login-bg">
+      <div className="login-card" style={{ animation: 'fadeSlideUp 0.4s ease' }}>
+        <div className="login-brand">
+          <div className="brand-icon">📦</div>
+          <div><strong>Ashcol Inventory</strong><p>Management System</p></div>
         </div>
 
-        <div className="filters">
-          <label>
-            Search
-            <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="SKU or Name" />
+        <h2>Welcome back</h2>
+        <p className="sub">Sign in to your account to continue</p>
+
+        {error && <div className="alert alert-error">⚠ {error}</div>}
+
+        <form className="form-grid" onSubmit={handleSubmit}>
+          <label>Email address
+            <input id="login-email" type="email" value={email} required autoFocus
+              onChange={e => setEmail(e.target.value)} placeholder="you@ashcol.local" />
           </label>
-          <label>
-            Category
-            <select
-              value={query.categoryId}
-              onChange={(e) => setQuery((s) => ({ ...s, categoryId: e.target.value, page: 1 }))}
-            >
-              <option value="">All</option>
-              {lookups.categories.map((c) => (
-                <option key={c.CategoryId} value={c.CategoryId}>{c.Name}</option>
-              ))}
-            </select>
+          <label>Password
+            <input id="login-password" type="password" value={password} required
+              onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
           </label>
-          <label>
-            Supplier
-            <select
-              value={query.supplierId}
-              onChange={(e) => setQuery((s) => ({ ...s, supplierId: e.target.value, page: 1 }))}
-            >
-              <option value="">All</option>
-              {lookups.suppliers.map((s) => (
-                <option key={s.SupplierId} value={s.SupplierId}>{s.Name}</option>
-              ))}
-            </select>
-          </label>
-          <div className="filter-actions">
-            <button className="btn" onClick={submitFilters} disabled={listLoading}>Apply</button>
-            <button className="btn ghost" onClick={resetFilters} disabled={listLoading}>Reset</button>
+          <button id="login-submit" className="btn btn-full" style={{ marginTop: '0.4rem' }} disabled={loading}>
+            {loading ? '⏳ Signing in…' : '→ Sign in'}
+          </button>
+        </form>
+
+        <div className="demo-hint">
+          <p className="dem-label">Demo credentials</p>
+          <p><strong>admin@ashcol.local</strong> / admin123 — Administrator</p>
+          <p><strong>juan.delacruz@ashcol.local</strong> / staff123 — Staff</p>
+          <p><strong>maria.santos@ashcol.local</strong> / staff123 — Staff</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SIDEBAR
+// ═════════════════════════════════════════════════════════════════════════════
+function Sidebar({ page, setPage, user, onLogout }: { page: Page; setPage: (p: Page) => void; user: User; onLogout: () => void }) {
+  const navItems: { id: Page; icon: string; label: string }[] = [
+    { id: 'dashboard',       icon: '⬛', label: 'Dashboard' },
+    { id: 'products',        icon: '📦', label: 'Products' },
+    { id: 'sales-orders',    icon: '🛒', label: 'Sales Orders' },
+    { id: 'invoices',        icon: '🧾', label: 'Invoices' },
+    { id: 'purchase-orders', icon: '📋', label: 'Purchase Orders' },
+  ]
+
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-brand">
+        <div className="b-icon">📦</div>
+        <div className="b-text"><strong>Ashcol Inventory</strong><span>Management System</span></div>
+      </div>
+
+      <nav className="sidebar-nav">
+        <div className="nav-section-label">Main Menu</div>
+        {navItems.map(item => (
+          <button key={item.id} id={`nav-${item.id}`} className={`nav-item${page === item.id ? ' active' : ''}`} onClick={() => setPage(item.id)}>
+            <span className="nav-icon">{item.icon}</span>
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      <div className="sidebar-footer">
+        <div className="user-chip">
+          <div className="user-avatar">{initials(user.fullName)}</div>
+          <div className="user-info"><strong>{user.fullName.split(' ')[0]}</strong><span>{user.role}</span></div>
+        </div>
+        <button id="btn-logout" className="btn btn-ghost btn-sm" style={{ width: '100%' }} onClick={onLogout}>↩ Sign out</button>
+      </div>
+    </aside>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// DASHBOARD PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function DashboardPage({ api, health }: { api: ReturnType<typeof makeApi>; health: HealthData | null }) {
+  const [stats,     setStats]     = useState<DashStats | null>(null)
+  const [lowStock,  setLowStock]  = useState<LowStockItem[]>([])
+  const [loading,   setLoading]   = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      api<DashStats>('/api/dashboard').then(r => setStats(r.data)),
+      api<LowStockItem[]>('/api/low-stock').then(r => setLowStock(r.data ?? [])),
+    ]).finally(() => setLoading(false))
+  }, [])
+
+  const statCards = [
+    { id: 'stat-products',   icon: '📦', label: 'Total Products',    value: stats?.TotalProducts  ?? '—', color: 'var(--blue)'   },
+    { id: 'stat-low-stock',  icon: '⚠️', label: 'Low Stock Items',   value: stats?.LowStockCount  ?? '—', color: 'var(--amber)'  },
+    { id: 'stat-orders',     icon: '🛒', label: 'Pending Orders',    value: stats?.PendingOrders  ?? '—', color: 'var(--purple)' },
+    { id: 'stat-revenue',    icon: '💰', label: 'Revenue Collected', value: stats ? fmt(stats.TotalRevenuePaid) : '—', color: 'var(--green)'  },
+  ]
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <h1>Dashboard</h1>
+        <p>Real-time overview of your inventory system</p>
+      </div>
+
+      {health?.ok && (
+        <div className="health-bar">
+          <span className="dot" />
+          Connected to <strong style={{ marginLeft: 4 }}>{health.database}</strong>
+          <span className="text-muted" style={{ marginLeft: 8, fontSize: '0.78rem' }}>— {health.serverVersion}</span>
+        </div>
+      )}
+
+      {loading ? <p className="text-muted">Loading stats…</p> : (
+        <>
+          <div className="card-grid">
+            {statCards.map(sc => (
+              <div key={sc.id} id={sc.id} className="stat-card" style={{ '--stat-color': sc.color } as React.CSSProperties}>
+                <div className="stat-icon">{sc.icon}</div>
+                <div className="stat-value">{sc.value}</div>
+                <div className="stat-label">{sc.label}</div>
+              </div>
+            ))}
           </div>
+
+          {lowStock.length > 0 && (
+            <div className="card" style={{ marginTop: '1rem' }}>
+              <div className="section-head">
+                <h2>⚠️ Low Stock Alerts</h2>
+                <span className="badge badge-amber">{lowStock.length} item{lowStock.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>On Hand</th><th>Reorder Level</th><th>Shortfall</th></tr></thead>
+                  <tbody>
+                    {lowStock.map(r => (
+                      <tr key={r.ProductId}>
+                        <td className="mono">{r.Sku}</td>
+                        <td>{r.ProductName}</td>
+                        <td>{r.Category}</td>
+                        <td style={{ color: r.TotalOnHand === 0 ? 'var(--red)' : 'var(--amber)', fontWeight: 600 }}>{r.TotalOnHand}</td>
+                        <td>{r.ReorderLevel}</td>
+                        <td style={{ color: 'var(--red)', fontWeight: 700 }}>−{r.ShortfallQty}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PRODUCTS PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function ProductsPage({ api }: { api: ReturnType<typeof makeApi> }) {
+  const [lookups,   setLookups]   = useState<LookupData>({ categories: [], suppliers: [], locations: [] })
+  const [products,  setProducts]  = useState<Product[]>([])
+  const [meta,      setMeta]      = useState<ProductListMeta>({ page: 1, pageSize: 10, total: 0, totalPages: 1, sortBy: 'Sku', sortDir: 'asc' })
+  const [loading,   setLoading]   = useState(false)
+  const [search,    setSearch]    = useState('')
+  const [filters,   setFilters]   = useState({ q: '', categoryId: '', supplierId: '', sortBy: 'sku', sortDir: 'asc', page: 1 })
+  const [selected,  setSelected]  = useState<ProductDetails | null>(null)
+  const [detailLoading, setDL]    = useState(false)
+  const [message,   setMessage]   = useState<{ text: string; ok: boolean } | null>(null)
+  const [draft,     setDraft]     = useState({ sku:'', name:'', categoryId:'', supplierId:'', unitOfMeasure:'PCS', unitCost:'0', listPrice:'0', reorderLevel:'0', description:'' })
+  const [adj,       setAdj]       = useState({ productId:'', locationId:'', quantityDelta:'', note:'' })
+  const [saving,    setSaving]    = useState(false)
+
+  const startIdx = useMemo(() => meta.total === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1, [meta])
+  const endIdx   = useMemo(() => Math.min(meta.total, meta.page * meta.pageSize), [meta])
+
+  useEffect(() => {
+    api<LookupData>('/api/lookups').then(r => setLookups(r.data ?? { categories: [], suppliers: [], locations: [] }))
+    loadProducts(filters)
+  }, [])
+
+  async function loadProducts(f = filters) {
+    setLoading(true)
+    const params = new URLSearchParams({ page: String(f.page), pageSize: '10', sortBy: f.sortBy, sortDir: f.sortDir })
+    if (f.q) params.set('q', f.q)
+    if (f.categoryId) params.set('categoryId', f.categoryId)
+    if (f.supplierId)  params.set('supplierId',  f.supplierId)
+    try {
+      const res = await api<Product[]>(`/api/products?${params}`)
+      setProducts(res.data ?? [])
+      const m = res.meta as Partial<ProductListMeta>
+      setMeta({ page: Number(m.page||1), pageSize: Number(m.pageSize||10), total: Number(m.total||0), totalPages: Number(m.totalPages||1), sortBy: String(m.sortBy||'Sku'), sortDir: (String(m.sortDir||'asc')) as 'asc'|'desc' })
+    } finally { setLoading(false) }
+  }
+
+  async function loadDetails(id: number) {
+    setDL(true)
+    try { const r = await api<ProductDetails>(`/api/products/${id}`); setSelected(r.data) }
+    finally { setDL(false) }
+  }
+
+  function applyFilters() {
+    const next = { ...filters, q: search.trim(), page: 1 }
+    setFilters(next); loadProducts(next)
+  }
+
+  function resetFilters() {
+    const next = { q:'', categoryId:'', supplierId:'', sortBy:'sku', sortDir:'asc', page:1 }
+    setSearch(''); setFilters(next); loadProducts(next)
+  }
+
+  function setSort(sortBy: string) {
+    const next = { ...filters, sortBy, sortDir: filters.sortBy===sortBy && filters.sortDir==='asc' ? 'desc' : 'asc', page: 1 }
+    setFilters(next); loadProducts(next)
+  }
+
+  function goPage(p: number) {
+    const next = { ...filters, page: Math.max(1, Math.min(meta.totalPages, p)) }
+    setFilters(next); loadProducts(next)
+  }
+
+  async function submitProduct(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage(null)
+    try {
+      await api<{ productId: number }>('/api/products', { method: 'POST', body: JSON.stringify({ ...draft, categoryId: Number(draft.categoryId), supplierId: draft.supplierId ? Number(draft.supplierId) : null, unitCost: Number(draft.unitCost), listPrice: Number(draft.listPrice), reorderLevel: Number(draft.reorderLevel) }) })
+      setDraft({ sku:'', name:'', categoryId:'', supplierId:'', unitOfMeasure:'PCS', unitCost:'0', listPrice:'0', reorderLevel:'0', description:'' })
+      setMessage({ text: 'Product created successfully.', ok: true })
+      loadProducts()
+    } catch (err) { setMessage({ text: String(err instanceof Error ? err.message : err), ok: false }) }
+    finally { setSaving(false) }
+  }
+
+  async function submitAdj(e: React.FormEvent) {
+    e.preventDefault(); setSaving(true); setMessage(null)
+    try {
+      await api<{ movementId: number }>('/api/stock-adjustments', { method: 'POST', body: JSON.stringify({ productId: Number(adj.productId), locationId: Number(adj.locationId), quantityDelta: Number(adj.quantityDelta), note: adj.note }) })
+      setAdj({ productId:'', locationId:'', quantityDelta:'', note:'' })
+      setMessage({ text: 'Stock adjustment saved.', ok: true })
+      loadProducts()
+      if (selected) loadDetails(selected.ProductId)
+    } catch (err) { setMessage({ text: String(err instanceof Error ? err.message : err), ok: false }) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <h1>Products</h1>
+        <p>Browse and manage your product catalog</p>
+      </div>
+
+      <div className="card" style={{ marginBottom: '1.25rem' }}>
+        <div className="section-head">
+          <h2>Catalog</h2>
+          <button className="btn btn-ghost btn-sm" id="btn-refresh-products" onClick={() => loadProducts()} disabled={loading}>↻ Refresh</button>
         </div>
 
-        {apiError && <p className="error">{apiError}</p>}
+        <div className="toolbar">
+          <div className="field">
+            <label>Search</label>
+            <input id="search-products" value={search} onChange={e => setSearch(e.target.value)} placeholder="SKU or Name" onKeyDown={e => e.key === 'Enter' && applyFilters()} />
+          </div>
+          <div className="field">
+            <label>Category</label>
+            <select id="filter-category" value={filters.categoryId} onChange={e => setFilters(s => ({ ...s, categoryId: e.target.value, page: 1 }))}>
+              <option value="">All</option>
+              {lookups.categories.map(c => <option key={c.CategoryId} value={c.CategoryId}>{c.Name}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Supplier</label>
+            <select id="filter-supplier" value={filters.supplierId} onChange={e => setFilters(s => ({ ...s, supplierId: e.target.value, page: 1 }))}>
+              <option value="">All</option>
+              {lookups.suppliers.map(s => <option key={s.SupplierId} value={s.SupplierId}>{s.Name}</option>)}
+            </select>
+          </div>
+          <button className="btn btn-sm" id="btn-apply-filters" onClick={applyFilters} disabled={loading}>Apply</button>
+          <button className="btn btn-ghost btn-sm" id="btn-reset-filters" onClick={resetFilters} disabled={loading}>Reset</button>
+        </div>
 
         <div className="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th><button className="head-btn" onClick={() => setSort('sku')}>SKU</button></th>
-                <th><button className="head-btn" onClick={() => setSort('name')}>Name</button></th>
-                <th><button className="head-btn" onClick={() => setSort('category')}>Category</button></th>
-                <th>UOM</th>
-                <th><button className="head-btn" onClick={() => setSort('price')}>List Price</button></th>
-                <th><button className="head-btn" onClick={() => setSort('supplier')}>Supplier</button></th>
-                <th>Action</th>
-              </tr>
-            </thead>
+            <thead><tr>
+              <th><button className="head-btn" onClick={() => setSort('sku')}>SKU</button></th>
+              <th><button className="head-btn" onClick={() => setSort('name')}>Name</button></th>
+              <th><button className="head-btn" onClick={() => setSort('category')}>Category</button></th>
+              <th>UOM</th>
+              <th><button className="head-btn" onClick={() => setSort('price')}>List Price</button></th>
+              <th>Supplier</th>
+              <th>Action</th>
+            </tr></thead>
             <tbody>
-              {listLoading && (
-                <tr><td colSpan={7} className="muted">Loading products...</td></tr>
-              )}
-              {!listLoading && products.length === 0 && (
-                <tr><td colSpan={7} className="muted">No products match your filters.</td></tr>
-              )}
-              {!listLoading && products.map((p) => (
+              {loading && <tr><td colSpan={7} className="text-muted">Loading…</td></tr>}
+              {!loading && products.length === 0 && <tr><td colSpan={7} className="text-muted">No products match your filters.</td></tr>}
+              {!loading && products.map(p => (
                 <tr key={p.ProductId}>
                   <td className="mono">{p.Sku}</td>
                   <td>{p.Name}</td>
                   <td>{p.CategoryName}</td>
                   <td>{p.UnitOfMeasure}</td>
-                  <td>{Number(p.ListPrice).toFixed(2)}</td>
-                  <td>{p.SupplierName || '—'}</td>
-                  <td>
-                    <button className="btn small" onClick={() => void loadProductDetails(p.ProductId)}>
-                      Details
-                    </button>
-                  </td>
+                  <td>{fmt(Number(p.ListPrice))}</td>
+                  <td>{p.SupplierName ?? '—'}</td>
+                  <td><button className="btn btn-sm" onClick={() => loadDetails(p.ProductId)}>Details</button></td>
                 </tr>
               ))}
             </tbody>
@@ -414,97 +408,93 @@ export default function App() {
         </div>
 
         <div className="pagination">
-          <span className="muted">Showing {startIndex}-{endIndex} of {listMeta.total}</span>
+          <span className="text-muted">Showing {startIdx}–{endIdx} of {meta.total}</span>
           <div className="pager-buttons">
-            <button className="btn ghost small" onClick={() => goToPage(listMeta.page - 1)} disabled={listMeta.page <= 1 || listLoading}>Prev</button>
-            <span>Page {listMeta.page} / {listMeta.totalPages}</span>
-            <button className="btn ghost small" onClick={() => goToPage(listMeta.page + 1)} disabled={listMeta.page >= listMeta.totalPages || listLoading}>Next</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => goPage(meta.page - 1)} disabled={meta.page <= 1 || loading}>‹ Prev</button>
+            <span>Page {meta.page} / {meta.totalPages}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => goPage(meta.page + 1)} disabled={meta.page >= meta.totalPages || loading}>Next ›</button>
           </div>
         </div>
-      </section>
+      </div>
 
-      <section className="grid-2">
-        <article className="card">
-          <h2>Inventory actions</h2>
-          {actionMessage && <p className={actionMessage.includes('success') || actionMessage.includes('saved') ? 'success' : 'error'}>{actionMessage}</p>}
+      <div className="grid-2">
+        {/* Actions panel */}
+        <div className="card">
+          <h2 style={{ margin: '0 0 1rem' }}>Inventory Actions</h2>
+          {message && <div className={`alert ${message.ok ? 'alert-success' : 'alert-error'}`}>{message.text}</div>}
 
-          <h3>Add product</h3>
-          <form className="form" onSubmit={submitProduct}>
-            <label>SKU<input required value={productDraft.sku} onChange={(e) => setProductDraft((s) => ({ ...s, sku: e.target.value }))} /></label>
-            <label>Name<input required value={productDraft.name} onChange={(e) => setProductDraft((s) => ({ ...s, name: e.target.value }))} /></label>
+          <p className="text-muted" style={{ fontSize: '0.82rem', margin: '0 0 0.5rem' }}>Add Product</p>
+          <form className="form-grid" onSubmit={submitProduct} style={{ marginBottom: '1.5rem' }}>
+            <label>SKU<input required value={draft.sku} onChange={e => setDraft(s => ({ ...s, sku: e.target.value }))} /></label>
+            <label>Name<input required value={draft.name} onChange={e => setDraft(s => ({ ...s, name: e.target.value }))} /></label>
             <label>Category
-              <select required value={productDraft.categoryId} onChange={(e) => setProductDraft((s) => ({ ...s, categoryId: e.target.value }))}>
-                <option value="">Select category</option>
-                {lookups.categories.map((c) => <option key={c.CategoryId} value={c.CategoryId}>{c.Name}</option>)}
+              <select required value={draft.categoryId} onChange={e => setDraft(s => ({ ...s, categoryId: e.target.value }))}>
+                <option value="">Select…</option>
+                {lookups.categories.map(c => <option key={c.CategoryId} value={c.CategoryId}>{c.Name}</option>)}
               </select>
             </label>
             <label>Supplier
-              <select value={productDraft.supplierId} onChange={(e) => setProductDraft((s) => ({ ...s, supplierId: e.target.value }))}>
+              <select value={draft.supplierId} onChange={e => setDraft(s => ({ ...s, supplierId: e.target.value }))}>
                 <option value="">None</option>
-                {lookups.suppliers.map((s) => <option key={s.SupplierId} value={s.SupplierId}>{s.Name}</option>)}
+                {lookups.suppliers.map(s => <option key={s.SupplierId} value={s.SupplierId}>{s.Name}</option>)}
               </select>
             </label>
-            <label>UOM<input value={productDraft.unitOfMeasure} onChange={(e) => setProductDraft((s) => ({ ...s, unitOfMeasure: e.target.value }))} /></label>
-            <label>Unit cost<input type="number" step="0.0001" min="0" value={productDraft.unitCost} onChange={(e) => setProductDraft((s) => ({ ...s, unitCost: e.target.value }))} /></label>
-            <label>List price<input type="number" step="0.0001" min="0" value={productDraft.listPrice} onChange={(e) => setProductDraft((s) => ({ ...s, listPrice: e.target.value }))} /></label>
-            <label>Reorder level<input type="number" min="0" value={productDraft.reorderLevel} onChange={(e) => setProductDraft((s) => ({ ...s, reorderLevel: e.target.value }))} /></label>
-            <label>Description<textarea rows={2} value={productDraft.description} onChange={(e) => setProductDraft((s) => ({ ...s, description: e.target.value }))} /></label>
-            <button className="btn" disabled={productSaving}>{productSaving ? 'Saving...' : 'Create product'}</button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+              <label>UOM<input value={draft.unitOfMeasure} onChange={e => setDraft(s => ({ ...s, unitOfMeasure: e.target.value }))} /></label>
+              <label>Reorder Level<input type="number" min="0" value={draft.reorderLevel} onChange={e => setDraft(s => ({ ...s, reorderLevel: e.target.value }))} /></label>
+              <label>Unit Cost<input type="number" step="0.01" min="0" value={draft.unitCost} onChange={e => setDraft(s => ({ ...s, unitCost: e.target.value }))} /></label>
+              <label>List Price<input type="number" step="0.01" min="0" value={draft.listPrice} onChange={e => setDraft(s => ({ ...s, listPrice: e.target.value }))} /></label>
+            </div>
+            <button className="btn" disabled={saving}>{saving ? 'Saving…' : 'Create Product'}</button>
           </form>
 
-          <h3>Stock adjustment</h3>
-          <form className="form" onSubmit={submitAdjustment}>
+          <p className="text-muted" style={{ fontSize: '0.82rem', margin: '0 0 0.5rem' }}>Stock Adjustment</p>
+          <form className="form-grid" onSubmit={submitAdj}>
             <label>Product
-              <select required value={adjustmentDraft.productId} onChange={(e) => setAdjustmentDraft((s) => ({ ...s, productId: e.target.value }))}>
-                <option value="">Select product</option>
-                {products.map((p) => <option key={p.ProductId} value={p.ProductId}>{p.Sku} - {p.Name}</option>)}
+              <select required value={adj.productId} onChange={e => setAdj(s => ({ ...s, productId: e.target.value }))}>
+                <option value="">Select product…</option>
+                {products.map(p => <option key={p.ProductId} value={p.ProductId}>{p.Sku} — {p.Name}</option>)}
               </select>
             </label>
             <label>Location
-              <select required value={adjustmentDraft.locationId} onChange={(e) => setAdjustmentDraft((s) => ({ ...s, locationId: e.target.value }))}>
-                <option value="">Select location</option>
-                {lookups.locations.map((l) => <option key={l.LocationId} value={l.LocationId}>{l.Code} - {l.Name}</option>)}
+              <select required value={adj.locationId} onChange={e => setAdj(s => ({ ...s, locationId: e.target.value }))}>
+                <option value="">Select location…</option>
+                {lookups.locations.map(l => <option key={l.LocationId} value={l.LocationId}>{l.Code} — {l.Name}</option>)}
               </select>
             </label>
-            <label>Quantity delta
-              <input
-                required
-                type="number"
-                value={adjustmentDraft.quantityDelta}
-                onChange={(e) => setAdjustmentDraft((s) => ({ ...s, quantityDelta: e.target.value }))}
-                placeholder="Positive or negative"
-              />
-            </label>
-            <label>Note<textarea rows={2} value={adjustmentDraft.note} onChange={(e) => setAdjustmentDraft((s) => ({ ...s, note: e.target.value }))} /></label>
-            <button className="btn" disabled={adjustmentSaving}>{adjustmentSaving ? 'Saving...' : 'Post adjustment'}</button>
+            <label>Quantity Delta<input required type="number" value={adj.quantityDelta} onChange={e => setAdj(s => ({ ...s, quantityDelta: e.target.value }))} placeholder="Positive or negative" /></label>
+            <label>Note<textarea rows={2} value={adj.note} onChange={e => setAdj(s => ({ ...s, note: e.target.value }))} /></label>
+            <button className="btn" disabled={saving}>{saving ? 'Saving…' : 'Post Adjustment'}</button>
           </form>
-        </article>
+        </div>
 
-        <article className="card">
-          <h2>Product details</h2>
-          {!selectedId && <p className="muted">Choose a product from the table to inspect stock by location.</p>}
-          {detailsLoading && <p className="muted">Loading details...</p>}
-          {selectedId && !detailsLoading && !selectedProduct && <p className="error">Product details unavailable.</p>}
-          {selectedProduct && (
+        {/* Detail panel */}
+        <div className="card">
+          <h2 style={{ margin: '0 0 1rem' }}>Product Details</h2>
+          {!selected && !detailLoading && <p className="text-muted">Select a product from the table to view stock by location.</p>}
+          {detailLoading && <p className="text-muted">Loading…</p>}
+          {selected && !detailLoading && (
             <>
-              <h3>{selectedProduct.Name}</h3>
-              <p className="muted">{selectedProduct.Sku} • {selectedProduct.CategoryName}</p>
-              <p className="muted">{selectedProduct.Description || 'No description provided.'}</p>
+              <div className="detail-panel" style={{ marginBottom: '1rem' }}>
+                <h3>{selected.Name}</h3>
+                <p>{selected.Sku} · {selected.CategoryName} · {selected.SupplierName ?? 'No supplier'}</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.83rem' }}>
+                  <div><span className="text-muted">Unit Cost</span><br /><strong>{fmt(Number(selected.UnitCost))}</strong></div>
+                  <div><span className="text-muted">List Price</span><br /><strong>{fmt(Number(selected.ListPrice))}</strong></div>
+                  <div><span className="text-muted">UOM</span><br /><strong>{selected.UnitOfMeasure}</strong></div>
+                  <div><span className="text-muted">Reorder Level</span><br /><strong>{selected.ReorderLevel}</strong></div>
+                </div>
+              </div>
+              <p className="text-muted" style={{ fontSize: '0.78rem', textTransform: 'uppercase', fontWeight: 600, letterSpacing: '0.05em', margin: '0 0 0.5rem' }}>Stock by Location</p>
               <div className="table-wrap">
                 <table>
-                  <thead>
-                    <tr>
-                      <th>Location</th>
-                      <th>Type</th>
-                      <th>On hand</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th>Location</th><th>Type</th><th>On Hand</th></tr></thead>
                   <tbody>
-                    {selectedProduct.stockByLocation.map((row) => (
+                    {selected.stockByLocation.map(row => (
                       <tr key={row.LocationId}>
-                        <td>{row.Code} - {row.Name}</td>
+                        <td>{row.Code} — {row.Name}</td>
                         <td>{row.LocationType}</td>
-                        <td>{row.QuantityOnHand}</td>
+                        <td style={{ fontWeight: 700, color: row.QuantityOnHand === 0 ? 'var(--red)' : row.QuantityOnHand < 5 ? 'var(--amber)' : 'var(--green)' }}>{row.QuantityOnHand}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -512,8 +502,258 @@ export default function App() {
               </div>
             </>
           )}
-        </article>
-      </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// SALES ORDERS PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
+  const [orders,  setOrders]  = useState<SalesOrder[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { api<SalesOrder[]>('/api/sales-orders').then(r => setOrders(r.data ?? [])).finally(() => setLoading(false)) }, [])
+
+  const totals = useMemo(() => ({
+    revenue: orders.filter(o => ['CONFIRMED','SHIPPED','COMPLETED'].includes(o.OrderStatus)).reduce((s, o) => s + Number(o.LinesTotal), 0),
+    byStatus: orders.reduce((acc, o) => { acc[o.OrderStatus] = (acc[o.OrderStatus] ?? 0) + 1; return acc }, {} as Record<string,number>),
+  }), [orders])
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <h1>Sales Orders</h1>
+        <p>All customer orders from the database</p>
+      </div>
+
+      <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
+        {Object.entries(totals.byStatus).map(([status, count]) => (
+          <div key={status} className="stat-card" style={{ '--stat-color': status === 'COMPLETED' ? 'var(--green)' : status === 'SHIPPED' ? 'var(--amber)' : status === 'CONFIRMED' ? 'var(--blue)' : 'var(--text-muted)' } as React.CSSProperties}>
+            <div className="stat-value">{count}</div>
+            <div className="stat-label">{status}</div>
+          </div>
+        ))}
+        <div className="stat-card" style={{ '--stat-color': 'var(--green)' } as React.CSSProperties}>
+          <div className="stat-value">{fmt(totals.revenue)}</div>
+          <div className="stat-label">Confirmed Revenue</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="section-head">
+          <h2>All Orders</h2>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setLoading(true); api<SalesOrder[]>('/api/sales-orders').then(r => setOrders(r.data ?? [])).finally(() => setLoading(false)) }}>↻ Refresh</button>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Order #</th><th>Date</th><th>Customer</th><th>Location</th><th>Status</th><th>Total</th></tr></thead>
+            <tbody>
+              {loading && <tr><td colSpan={6} className="text-muted">Loading…</td></tr>}
+              {!loading && orders.map(o => (
+                <tr key={o.SalesOrderId}>
+                  <td className="mono">{o.OrderNumber}</td>
+                  <td>{fmtDate(o.OrderDate)}</td>
+                  <td>{o.CustomerName}</td>
+                  <td>{o.FulfillmentLocation}</td>
+                  <td><Badge status={o.OrderStatus} /></td>
+                  <td style={{ fontWeight: 600 }}>{fmt(Number(o.LinesTotal))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// INVOICES PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [paying,   setPaying]   = useState<number | null>(null)
+  const [message,  setMessage]  = useState<{ text: string; ok: boolean } | null>(null)
+
+  useEffect(() => { api<Invoice[]>('/api/invoices').then(r => setInvoices(r.data ?? [])).finally(() => setLoading(false)) }, [])
+
+  async function markPaid(inv: Invoice) {
+    setPaying(inv.InvoiceId)
+    try {
+      await api(`/api/invoices/${inv.InvoiceId}/pay`, { method: 'PATCH' })
+      setInvoices(prev => prev.map(i => i.InvoiceId === inv.InvoiceId ? { ...i, PaymentStatus: 'PAID' } : i))
+      setMessage({ text: `${inv.InvoiceNumber} marked as PAID.`, ok: true })
+    } catch (err) {
+      setMessage({ text: String(err instanceof Error ? err.message : err), ok: false })
+    } finally { setPaying(null) }
+  }
+
+  const totals = useMemo(() => ({
+    paid:   invoices.filter(i => i.PaymentStatus === 'PAID').reduce((s, i)  => s + Number(i.TotalAmount), 0),
+    unpaid: invoices.filter(i => i.PaymentStatus === 'UNPAID').reduce((s, i) => s + Number(i.TotalAmount), 0),
+  }), [invoices])
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <h1>Invoices</h1>
+        <p>Billing records for all completed and shipped orders</p>
+      </div>
+
+      <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
+        <div className="stat-card" style={{ '--stat-color': 'var(--green)' } as React.CSSProperties}>
+          <div className="stat-icon">✅</div>
+          <div className="stat-value">{fmt(totals.paid)}</div>
+          <div className="stat-label">Collected Revenue</div>
+        </div>
+        <div className="stat-card" style={{ '--stat-color': 'var(--amber)' } as React.CSSProperties}>
+          <div className="stat-icon">⏳</div>
+          <div className="stat-value">{fmt(totals.unpaid)}</div>
+          <div className="stat-label">Outstanding</div>
+        </div>
+        <div className="stat-card" style={{ '--stat-color': 'var(--blue)' } as React.CSSProperties}>
+          <div className="stat-icon">🧾</div>
+          <div className="stat-value">{invoices.length}</div>
+          <div className="stat-label">Total Invoices</div>
+        </div>
+      </div>
+
+      {message && <div className={`alert ${message.ok ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: '1rem' }}>{message.text}</div>}
+
+      <div className="card">
+        <div className="section-head"><h2>All Invoices</h2></div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Invoice #</th><th>Date</th><th>Customer</th><th>Order</th><th>Sub-Total</th><th>VAT (12%)</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+              {loading && <tr><td colSpan={9} className="text-muted">Loading…</td></tr>}
+              {!loading && invoices.map(inv => (
+                <tr key={inv.InvoiceId}>
+                  <td className="mono">{inv.InvoiceNumber}</td>
+                  <td>{fmtDate(inv.InvoiceDate)}</td>
+                  <td>{inv.CustomerName}</td>
+                  <td className="mono">{inv.OrderNumber}</td>
+                  <td>{fmt(Number(inv.SubTotal))}</td>
+                  <td>{fmt(Number(inv.TaxAmount))}</td>
+                  <td style={{ fontWeight: 700 }}>{fmt(Number(inv.TotalAmount))}</td>
+                  <td><Badge status={inv.PaymentStatus} /></td>
+                  <td>
+                    {inv.PaymentStatus === 'UNPAID'
+                      ? <button id={`btn-pay-${inv.InvoiceId}`} className="btn btn-green btn-sm" disabled={paying === inv.InvoiceId} onClick={() => markPaid(inv)}>{paying === inv.InvoiceId ? '…' : '✓ Mark Paid'}</button>
+                      : <span className="text-muted" style={{ fontSize: '0.78rem' }}>—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// PURCHASE ORDERS PAGE
+// ═════════════════════════════════════════════════════════════════════════════
+function PurchaseOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
+  const [pos,     setPos]     = useState<PurchaseOrder[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { api<PurchaseOrder[]>('/api/purchase-orders').then(r => setPos(r.data ?? [])).finally(() => setLoading(false)) }, [])
+
+  return (
+    <div className="main">
+      <div className="page-header">
+        <h1>Purchase Orders</h1>
+        <p>Replenishment orders sent to suppliers</p>
+      </div>
+
+      <div className="card-grid" style={{ marginBottom: '1.25rem' }}>
+        {['RECEIVED','PARTIAL','OPEN'].map(status => {
+          const filtered = pos.filter(p => p.Status === status)
+          return (
+            <div key={status} className="stat-card" style={{ '--stat-color': status === 'RECEIVED' ? 'var(--green)' : status === 'PARTIAL' ? 'var(--amber)' : 'var(--blue)' } as React.CSSProperties}>
+              <div className="stat-value">{filtered.length}</div>
+              <div className="stat-label">{status} POs</div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="card">
+        <div className="section-head"><h2>All Purchase Orders</h2></div>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>PO #</th><th>Date</th><th>Supplier</th><th>Ship To</th><th>Lines</th><th>Ordered Value</th><th>Status</th><th>Fulfilment</th></tr></thead>
+            <tbody>
+              {loading && <tr><td colSpan={8} className="text-muted">Loading…</td></tr>}
+              {!loading && pos.map(po => (
+                <tr key={po.PurchaseOrderId}>
+                  <td className="mono">{po.PoNumber}</td>
+                  <td>{fmtDate(po.OrderDate)}</td>
+                  <td>{po.Supplier}</td>
+                  <td>{po.ShipToLocation}</td>
+                  <td style={{ textAlign: 'center' }}>{po.LineCount}</td>
+                  <td>{fmt(Number(po.TotalOrderedValue))}</td>
+                  <td><Badge status={po.Status} /></td>
+                  <td style={{ minWidth: 140 }}><ProgressBar pct={Number(po.FulfilmentPct)} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ROOT APP
+// ═════════════════════════════════════════════════════════════════════════════
+export default function App() {
+  const [token,   setToken]   = useState<string>(() => localStorage.getItem('ashcol_token') ?? '')
+  const [user,    setUser]    = useState<User | null>(() => { try { return JSON.parse(localStorage.getItem('ashcol_user') ?? 'null') } catch { return null } })
+  const [page,    setPage]    = useState<Page>('dashboard')
+  const [health,  setHealth]  = useState<HealthData | null>(null)
+
+  const api = useMemo(() => makeApi(token), [token])
+
+  useEffect(() => {
+    if (token) api<HealthData>('/api/health').then(r => setHealth(r.data)).catch(() => {})
+  }, [token])
+
+  function handleLogin(newToken: string, newUser: User) {
+    localStorage.setItem('ashcol_token', newToken)
+    localStorage.setItem('ashcol_user', JSON.stringify(newUser))
+    setToken(newToken)
+    setUser(newUser)
+    setPage('dashboard')
+  }
+
+  function handleLogout() {
+    localStorage.removeItem('ashcol_token')
+    localStorage.removeItem('ashcol_user')
+    setToken(''); setUser(null)
+  }
+
+  if (!token || !user) return <LoginPage onLogin={handleLogin} />
+
+  const pageComponent: Record<Page, React.ReactNode> = {
+    'dashboard':       <DashboardPage api={api} health={health} />,
+    'products':        <ProductsPage api={api} />,
+    'sales-orders':    <SalesOrdersPage api={api} />,
+    'invoices':        <InvoicesPage api={api} />,
+    'purchase-orders': <PurchaseOrdersPage api={api} />,
+  }
+
+  return (
+    <div className="layout">
+      <Sidebar page={page} setPage={setPage} user={user} onLogout={handleLogout} />
+      {pageComponent[page]}
     </div>
   )
 }

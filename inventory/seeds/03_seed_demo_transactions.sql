@@ -393,7 +393,7 @@ GO
 -- ============================================================
 -- 11. Verification queries
 -- ============================================================
-SELECT 'Customers'       AS Entity, COUNT(*) AS RowCount FROM dbo.Customers
+SELECT 'Customers'       AS Entity, COUNT(*) AS [RowCount] FROM dbo.Customers
 UNION ALL
 SELECT 'SalesOrders',    COUNT(*) FROM dbo.SalesOrders
 UNION ALL
