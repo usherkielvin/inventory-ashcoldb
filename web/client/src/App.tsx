@@ -103,37 +103,56 @@ function LoginPage({ onLogin }: { onLogin: (token: string, user: User) => void }
 
   return (
     <div className="login-bg">
-      <div className="login-card" style={{ animation: 'fadeSlideUp 0.4s ease' }}>
-        <div className="login-brand">
-          <div className="brand-icon">📦</div>
-          <div><strong>Ashcol Inventory</strong><p>Management System</p></div>
+      <div className="login-card">
+
+        {/* Ashcol Logo */}
+        <div className="login-logo">
+          <img src="/assets/ash-logo.jpg" alt="Ashcol" className="login-logo-img" />
         </div>
 
-        <h2>Welcome back</h2>
-        <p className="sub">Sign in to your account to continue</p>
+        <h2 className="login-title">Welcome back!</h2>
+        <p className="login-sub">Sign in to your account to continue.</p>
 
-        {error && <div className="alert alert-error">⚠ {error}</div>}
+        {error && <div className="alert alert-error" style={{ marginBottom: "1rem" }}>&#9888; {error}</div>}
 
-        <form className="form-grid" onSubmit={handleSubmit}>
-          <label>Email address
-            <input id="login-email" type="email" value={email} required autoFocus
-              onChange={e => setEmail(e.target.value)} placeholder="you@ashcol.local" />
-          </label>
-          <label>Password
-            <input id="login-password" type="password" value={password} required
-              onChange={e => setPassword(e.target.value)} placeholder="••••••••" />
-          </label>
-          <button id="login-submit" className="btn btn-full" style={{ marginTop: '0.4rem' }} disabled={loading}>
-            {loading ? '⏳ Signing in…' : '→ Sign in'}
+        <form onSubmit={handleSubmit}>
+          <div className="login-field">
+            <span className="login-field-label">Email</span>
+            <input
+              id="login-email"
+              type="email"
+              value={email}
+              required
+              autoFocus
+              onChange={e => setEmail(e.target.value)}
+              placeholder="Enter your email"
+              className="login-input"
+            />
+          </div>
+          <div className="login-field">
+            <span className="login-field-label">Password</span>
+            <input
+              id="login-password"
+              type="password"
+              value={password}
+              required
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Password"
+              className="login-input"
+            />
+          </div>
+          <button id="login-submit" type="submit" className="btn-signin" disabled={loading}>
+            {loading ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
         <div className="demo-hint">
-          <p className="dem-label">Demo credentials</p>
-          <p><strong>admin@ashcol.local</strong> / admin123 — Administrator</p>
-          <p><strong>juan.delacruz@ashcol.local</strong> / staff123 — Staff</p>
-          <p><strong>maria.santos@ashcol.local</strong> / staff123 — Staff</p>
+          <p className="dem-label">Demo Credentials</p>
+          <p><strong>admin@ashcol.local</strong> / admin123 - Admin</p>
+          <p><strong>juan.delacruz@ashcol.local</strong> / staff123 - Staff</p>
+          <p><strong>maria.santos@ashcol.local</strong> / staff123 - Staff</p>
         </div>
+
       </div>
     </div>
   )
