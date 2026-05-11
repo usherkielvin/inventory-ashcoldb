@@ -17,7 +17,6 @@ type ApiEnvelope<T> = {
   meta: Record<string, unknown>;
 };
 
-type HealthData = { ok: boolean; database?: string; serverVersion?: string };
 type LookupCategory = { CategoryId: number; Name: string };
 type LookupSupplier = { SupplierId: number; Name: string };
 type LookupLocation = {
@@ -69,14 +68,6 @@ type ProductDetails = Product & {
   }>;
 };
 
-type DashStats = {
-  TotalProducts: number;
-  LowStockCount: number;
-  PendingOrders: number;
-  TotalRevenuePaid: number;
-  UnpaidInvoices: number;
-};
-
 type SalesOrder = {
   SalesOrderId: number;
   OrderNumber: string;
@@ -117,17 +108,6 @@ type PurchaseOrder = {
   TotalOrderedValue: number;
   TotalReceivedValue: number;
   FulfilmentPct: number;
-};
-
-type LowStockItem = {
-  ProductId: number;
-  Sku: string;
-  ProductName: string;
-  Category: string;
-  Supplier: string;
-  ReorderLevel: number;
-  TotalOnHand: number;
-  ShortfallQty: number;
 };
 
 type ServiceJob = {
@@ -694,148 +674,68 @@ function TopBar({
 // ═════════════════════════════════════════════════════════════════════════════
 // DASHBOARD PAGE
 // ═════════════════════════════════════════════════════════════════════════════
-function DashboardPage({
-  api,
-  health,
-}: {
-  api: ReturnType<typeof makeApi>;
-  health: HealthData | null;
-}) {
-  const [stats, setStats] = useState<DashStats | null>(null);
-  const [lowStock, setLowStock] = useState<LowStockItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      api<DashStats>("/api/dashboard").then((r) => setStats(r.data)),
-      api<LowStockItem[]>("/api/low-stock").then((r) =>
-        setLowStock(r.data ?? []),
-      ),
-    ]).finally(() => setLoading(false));
-  }, []);
-
-  const statCards = [
+function DashboardPage() {
+  const cards = [
     {
       id: "stat-products",
-      icon: "📦",
-      label: "Total Products",
-      value: stats?.TotalProducts ?? "—",
-      color: "var(--blue)",
+      title: "Total Products",
+      subtitle: "Active inventory items",
+      icon: "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/yKnbVvJgNU/yar91cle_expires_30_days.png",
+      variant: "blue",
     },
     {
       id: "stat-low-stock",
-      icon: "⚠️",
-      label: "Low Stock Items",
-      value: stats?.LowStockCount ?? "—",
-      color: "var(--amber)",
+      title: "Low Stock Items",
+      subtitle: "Requires restocking",
+      icon: "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/yKnbVvJgNU/ze8x556n_expires_30_days.png",
+      variant: "red",
     },
     {
       id: "stat-orders",
-      icon: "🛒",
-      label: "Pending Orders",
-      value: stats?.PendingOrders ?? "—",
-      color: "var(--purple)",
+      title: "Pending Orders",
+      subtitle: "Quantity in hand",
+      icon: "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/yKnbVvJgNU/0zk1egwh_expires_30_days.png",
+      variant: "amber",
     },
     {
       id: "stat-revenue",
-      icon: "💰",
-      label: "Revenue Collected",
-      value: stats ? fmt(stats.TotalRevenuePaid) : "—",
-      color: "var(--green)",
+      title: "Revenue Collected",
+      subtitle: "Quantity in hand",
+      icon: "https://storage.googleapis.com/tagjs-prod.appspot.com/v1/yKnbVvJgNU/xo97mehz_expires_30_days.png",
+      variant: "green",
     },
   ];
 
   return (
-    <div className="main">
-      <div className="page-header">
+    <div className="main dashboard-page">
+      <div className="dashboard-copy">
         <h1>Dashboard</h1>
-        <p>Real-time overview of your inventory system</p>
+        <p>Real-time overview of your inventory system.</p>
       </div>
 
-      {health?.ok && (
-        <div className="health-bar">
-          <span className="dot" />
-          Connected to{" "}
-          <strong style={{ marginLeft: 4 }}>{health.database}</strong>
-          <span
-            className="text-muted"
-            style={{ marginLeft: 8, fontSize: "0.78rem" }}
+      <div className="dashboard-cards">
+        {cards.map((card) => (
+          <div
+            key={card.id}
+            id={card.id}
+            className={`dashboard-card dashboard-card--${card.variant}`}
           >
-            — {health.serverVersion}
-          </span>
-        </div>
-      )}
-
-      {loading ? (
-        <p className="text-muted">Loading stats…</p>
-      ) : (
-        <>
-          <div className="card-grid">
-            {statCards.map((sc) => (
-              <div
-                key={sc.id}
-                id={sc.id}
-                className="stat-card"
-                style={{ "--stat-color": sc.color } as React.CSSProperties}
-              >
-                <div className="stat-icon">{sc.icon}</div>
-                <div className="stat-value">{sc.value}</div>
-                <div className="stat-label">{sc.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {lowStock.length > 0 && (
-            <div className="card" style={{ marginTop: "1rem" }}>
-              <div className="section-head">
-                <h2>⚠️ Low Stock Alerts</h2>
-                <span className="badge badge-amber">
-                  {lowStock.length} item{lowStock.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>SKU</th>
-                      <th>Product</th>
-                      <th>Category</th>
-                      <th>On Hand</th>
-                      <th>Reorder Level</th>
-                      <th>Shortfall</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lowStock.map((r) => (
-                      <tr key={r.ProductId}>
-                        <td className="mono">{r.Sku}</td>
-                        <td>{r.ProductName}</td>
-                        <td>{r.Category}</td>
-                        <td
-                          style={{
-                            color:
-                              r.TotalOnHand === 0
-                                ? "var(--red)"
-                                : "var(--amber)",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {r.TotalOnHand}
-                        </td>
-                        <td>{r.ReorderLevel}</td>
-                        <td style={{ color: "var(--red)", fontWeight: 700 }}>
-                          −{r.ShortfallQty}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="dashboard-card-head">
+              <span className="dashboard-card-title">{card.title}</span>
+              <span className="dashboard-card-icon">
+                <img
+                  src={card.icon}
+                  alt=""
+                  aria-hidden="true"
+                  className="dashboard-card-icon-img"
+                />
+              </span>
             </div>
-          )}
-        </>
-      )}
+            <div className="dashboard-card-divider" />
+            <div className="dashboard-card-subtitle">{card.subtitle}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2748,17 +2648,9 @@ export default function App() {
     }
   });
   const [page, setPage] = useState<Page>("dashboard");
-  const [health, setHealth] = useState<HealthData | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const api = useMemo(() => makeApi(token), [token]);
-
-  useEffect(() => {
-    if (token)
-      api<HealthData>("/api/health")
-        .then((r) => setHealth(r.data))
-        .catch(() => {});
-  }, [token]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -2791,7 +2683,7 @@ export default function App() {
   if (!token || !user) return <LoginPage onLogin={handleLogin} />;
 
   const pageComponent: Record<Page, React.ReactNode> = {
-    dashboard: <DashboardPage api={api} health={health} />,
+    dashboard: <DashboardPage />,
     products: <ProductsPage api={api} />,
     "sales-orders": <SalesOrdersPage api={api} />,
     invoices: <InvoicesPage api={api} />,
