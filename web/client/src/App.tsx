@@ -1467,6 +1467,15 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
   ]);
 
   useEffect(() => {
+    if (!showForm) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showForm]);
+
+  useEffect(() => {
     loadAll();
   }, []);
 
@@ -1616,52 +1625,86 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
     COMPLETED: "var(--green)",
     CANCELLED: "var(--text-muted)",
   };
+  const summaryCards = [
+    {
+      key: null,
+      label: "Total Jobs",
+      value: jobs.length,
+      foot: "All Jobs",
+      color: "var(--blue)",
+    },
+    {
+      key: "COMPLETED",
+      label: "Completed Jobs",
+      value: byStatus.COMPLETED ?? 0,
+      foot: "Finished Jobs",
+      color: "var(--green)",
+    },
+    {
+      key: "IN_PROGRESS",
+      label: "In Progress Jobs",
+      value: byStatus.IN_PROGRESS ?? 0,
+      foot: "Ongoing Jobs",
+      color: "var(--amber)",
+    },
+    {
+      key: "PENDING",
+      label: "Pending Jobs",
+      value: byStatus.PENDING ?? 0,
+      foot: "Awaiting Jobs",
+      color: "var(--amber)",
+    },
+    {
+      key: "CANCELLED",
+      label: "Cancelled Jobs",
+      value: byStatus.CANCELLED ?? 0,
+      foot: "Dropped Jobs",
+      color: "var(--red)",
+    },
+  ] as const;
 
   return (
-    <div className="main">
-      <div className="page-header">
-        <h1>🔧 Service Jobs</h1>
+    <div className="main service-jobs-page">
+      <div className="service-jobs-page-header">
+        <h1>Service Jobs</h1>
         <p>
-          Installation &amp; service work orders — materials auto-deducted from
+          Installation &amp; service work orders - materials auto-deducted from
           inventory on job completion
         </p>
       </div>
 
-      {/* Filter tabs */}
-      <div className="card-grid" style={{ marginBottom: "1.25rem" }}>
-        <div
-          className="stat-card"
-          style={
-            {
-              "--stat-color": "var(--text-muted)",
-              cursor: "pointer",
-              opacity: filter === null ? 1 : 0.6,
-            } as React.CSSProperties
-          }
-          onClick={() => setFilter(null)}
-        >
-          <div className="stat-value">{jobs.length}</div>
-          <div className="stat-label">All Jobs</div>
+      <div
+        className="card service-jobs-summary-card"
+        style={{ marginBottom: "1.25rem" }}
+      >
+        <div className="section-head service-jobs-summary-head">
+          <h2>Overall Service Jobs</h2>
         </div>
-        {(["PENDING", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const).map(
-          (s) => (
-            <div
-              key={s}
-              className="stat-card"
+        <div className="service-jobs-summary-grid">
+          {summaryCards.map((card) => (
+            <button
+              key={card.label}
+              type="button"
+              className="service-jobs-summary-tile"
               style={
                 {
-                  "--stat-color": statusColor[s],
-                  cursor: "pointer",
-                  opacity: filter === s ? 1 : filter ? 0.6 : 1,
+                  "--summary-color": card.color,
+                  opacity:
+                    filter === card.key
+                      ? 1
+                      : filter && filter !== card.key
+                        ? 0.7
+                        : 1,
                 } as React.CSSProperties
               }
-              onClick={() => setFilter(s)}
+              onClick={() => setFilter(card.key)}
             >
-              <div className="stat-value">{byStatus[s] ?? 0}</div>
-              <div className="stat-label">{s.replace("_", " ")}</div>
-            </div>
-          ),
-        )}
+              <div className="service-jobs-summary-label">{card.label}</div>
+              <div className="service-jobs-summary-value">{card.value}</div>
+              <div className="service-jobs-summary-foot">{card.foot}</div>
+            </button>
+          ))}
+        </div>
       </div>
 
       {message && (
@@ -1674,9 +1717,10 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
       )}
 
       <div
+        className="service-jobs-layout"
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 400px",
+          gridTemplateColumns: "1fr 220px",
           gap: "1.25rem",
           alignItems: "start",
         }}
@@ -1684,7 +1728,7 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
         {/* Left: job list */}
         <div className="card">
           <div className="section-head">
-            <h2>Work Orders</h2>
+            <h2>Products</h2>
             <button
               className="btn btn-sm"
               onClick={() => {
@@ -1692,214 +1736,213 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
                 setMessage(null);
               }}
             >
-              {showForm ? "✕ Cancel" : "➕ New Service Job"}
+              {showForm ? "✕ Close" : "Add New Service Job"}
             </button>
           </div>
 
           {showForm && (
-            <form
-              className="form-grid"
-              onSubmit={submitJob}
-              style={{
-                marginBottom: "1.25rem",
-                background: "var(--surface2)",
-                padding: "1rem",
-                borderRadius: "var(--radius-sm)",
-                border: "1px solid var(--border2)",
-              }}
+            <div
+              className="service-job-form-backdrop"
+              onClick={() => setShowForm(false)}
+              role="presentation"
             >
-              <p
-                style={{
-                  margin: "0 0 0.75rem",
-                  fontWeight: 600,
-                  fontSize: "0.86rem",
-                  color: "var(--text)",
-                }}
+              <form
+                className="service-job-form-modal"
+                onSubmit={submitJob}
+                onClick={(e) => e.stopPropagation()}
               >
-                📋 New Service Job
-              </p>
-              <div className="responsive-grid-2">
-                <label>
-                  Customer
-                  <select
-                    required
-                    value={draft.customerId}
-                    onChange={(e) =>
-                      setDraft((s) => ({ ...s, customerId: e.target.value }))
-                    }
-                  >
-                    <option value="">Select customer…</option>
-                    {customers.map((c) => (
-                      <option key={c.CustomerId} value={c.CustomerId}>
-                        {c.Name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Location (Stock Source)
-                  <select
-                    required
-                    value={draft.locationId}
-                    onChange={(e) =>
-                      setDraft((s) => ({ ...s, locationId: e.target.value }))
-                    }
-                  >
-                    <option value="">Select location…</option>
-                    {locations.map((l) => (
-                      <option key={l.LocationId} value={l.LocationId}>
-                        {l.Code} — {l.Name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Assigned Technician
-                  <input
-                    value={draft.assigneeName}
-                    onChange={(e) =>
-                      setDraft((s) => ({ ...s, assigneeName: e.target.value }))
-                    }
-                    placeholder="e.g. Juan dela Cruz"
-                  />
-                </label>
-                <label>
-                  Scheduled Date
-                  <input
-                    type="datetime-local"
-                    required
-                    value={draft.scheduledDate}
-                    onChange={(e) =>
-                      setDraft((s) => ({ ...s, scheduledDate: e.target.value }))
-                    }
-                  />
-                </label>
-              </div>
-              <label>
-                Notes{" "}
-                <textarea
-                  rows={2}
-                  value={draft.notes}
-                  onChange={(e) =>
-                    setDraft((s) => ({ ...s, notes: e.target.value }))
-                  }
-                  placeholder="Job description or special instructions…"
-                />
-              </label>
-
-              {/* Bill of Materials */}
-              <div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "0.4rem",
-                  }}
-                >
-                  <p
-                    style={{
-                      margin: 0,
-                      fontSize: "0.78rem",
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                      color: "var(--text-muted)",
-                    }}
-                  >
-                    Bill of Materials
-                  </p>
+                <div className="service-job-form-header">
+                  <h3>New Service Job</h3>
                   <button
                     type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() =>
-                      setDraftMats((m) => [
-                        ...m,
-                        { tempId: Date.now(), productId: "", quantity: "1" },
-                      ])
-                    }
+                    className="service-job-form-close"
+                    onClick={() => setShowForm(false)}
+                    aria-label="Close form"
                   >
-                    + Add Row
+                    ×
                   </button>
                 </div>
-                {draftMats.map((mat) => (
-                  <div
-                    key={mat.tempId}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 80px 30px",
-                      gap: "0.4rem",
-                      marginBottom: "0.4rem",
-                    }}
-                  >
+
+                <div className="service-job-form-body">
+                  <label className="service-job-field service-job-field--text">
+                    <span>Customer</span>
                     <select
                       required
-                      value={mat.productId}
+                      value={draft.customerId}
                       onChange={(e) =>
-                        setDraftMats((m) =>
-                          m.map((x) =>
-                            x.tempId === mat.tempId
-                              ? { ...x, productId: e.target.value }
-                              : x,
-                          ),
-                        )
+                        setDraft((s) => ({ ...s, customerId: e.target.value }))
                       }
                     >
-                      <option value="">Select product…</option>
-                      {allProducts.map((p) => (
-                        <option key={p.ProductId} value={p.ProductId}>
-                          {p.Sku} — {p.Name}
+                      <option value="">Select Customer</option>
+                      {customers.map((c) => (
+                        <option key={c.CustomerId} value={c.CustomerId}>
+                          {c.Name}
                         </option>
                       ))}
                     </select>
-                    <input
-                      type="number"
-                      min="1"
+                  </label>
+
+                  <label className="service-job-field service-job-field--text">
+                    <span>Location</span>
+                    <select
                       required
-                      value={mat.quantity}
-                      placeholder="Qty"
+                      value={draft.locationId}
                       onChange={(e) =>
-                        setDraftMats((m) =>
-                          m.map((x) =>
-                            x.tempId === mat.tempId
-                              ? { ...x, quantity: e.target.value }
-                              : x,
-                          ),
-                        )
+                        setDraft((s) => ({ ...s, locationId: e.target.value }))
+                      }
+                    >
+                      <option value="">Select Location</option>
+                      {locations.map((l) => (
+                        <option key={l.LocationId} value={l.LocationId}>
+                          {l.Code} — {l.Name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="service-job-field service-job-field--text">
+                    <span>Assigned Technician</span>
+                    <input
+                      value={draft.assigneeName}
+                      onChange={(e) =>
+                        setDraft((s) => ({
+                          ...s,
+                          assigneeName: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. Juan Dela Cruz"
+                    />
+                  </label>
+
+                  <label className="service-job-field service-job-field--text">
+                    <span>Scheduled Date</span>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={draft.scheduledDate}
+                      onChange={(e) =>
+                        setDraft((s) => ({
+                          ...s,
+                          scheduledDate: e.target.value,
+                        }))
                       }
                     />
+                  </label>
+
+                  <label className="service-job-field service-job-field--textarea">
+                    <span>Notes</span>
+                    <textarea
+                      rows={3}
+                      value={draft.notes}
+                      onChange={(e) =>
+                        setDraft((s) => ({ ...s, notes: e.target.value }))
+                      }
+                      placeholder="Job description or special instructions"
+                    />
+                  </label>
+
+                  <div className="service-job-materials-head">
+                    <p>BILL OF MATERIALS</p>
                     <button
                       type="button"
-                      className="btn btn-danger btn-sm"
-                      style={{ padding: "0.35rem 0.5rem" }}
+                      className="service-job-add-row"
                       onClick={() =>
-                        setDraftMats((m) =>
-                          m.filter((x) => x.tempId !== mat.tempId),
-                        )
+                        setDraftMats((m) => [
+                          ...m,
+                          { tempId: Date.now(), productId: "", quantity: "1" },
+                        ])
                       }
-                      disabled={draftMats.length === 1}
                     >
-                      ✕
+                      + Add Row
                     </button>
                   </div>
-                ))}
-              </div>
-              <button className="btn" disabled={saving}>
-                {saving ? "⏳ Creating…" : "Create Job"}
-              </button>
-            </form>
+
+                  <div className="service-job-materials-list">
+                    {draftMats.map((mat) => (
+                      <div
+                        key={mat.tempId}
+                        className="service-job-material-row"
+                      >
+                        <select
+                          required
+                          value={mat.productId}
+                          onChange={(e) =>
+                            setDraftMats((m) =>
+                              m.map((x) =>
+                                x.tempId === mat.tempId
+                                  ? { ...x, productId: e.target.value }
+                                  : x,
+                              ),
+                            )
+                          }
+                        >
+                          <option value="">Select product</option>
+                          {allProducts.map((p) => (
+                            <option key={p.ProductId} value={p.ProductId}>
+                              {p.Sku} — {p.Name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="number"
+                          min="1"
+                          required
+                          value={mat.quantity}
+                          placeholder="0"
+                          onChange={(e) =>
+                            setDraftMats((m) =>
+                              m.map((x) =>
+                                x.tempId === mat.tempId
+                                  ? { ...x, quantity: e.target.value }
+                                  : x,
+                              ),
+                            )
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="service-job-row-remove"
+                          onClick={() =>
+                            setDraftMats((m) =>
+                              m.filter((x) => x.tempId !== mat.tempId),
+                            )
+                          }
+                          disabled={draftMats.length === 1}
+                          aria-label="Remove material row"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="service-job-form-footer">
+                  <button
+                    type="button"
+                    className="service-job-discard"
+                    onClick={() => setShowForm(false)}
+                  >
+                    Discard
+                  </button>
+                  <button className="service-job-create" disabled={saving}>
+                    {saving ? "Creating…" : "Create Job"}
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
 
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Job #</th>
+                  <th>JOB #</th>
                   <th>Customer</th>
-                  <th>Loc</th>
-                  <th>Technician</th>
-                  <th>Scheduled</th>
-                  <th>Items</th>
+                  <th>LOCATION</th>
+                  <th>TECHNICIAN</th>
+                  <th>SCHEDULE</th>
+                  <th>ITEMS</th>
                   <th>Status</th>
                   <th></th>
                 </tr>
@@ -1979,7 +2022,7 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
         </div>
 
         {/* Right: detail panel */}
-        <div className="card">
+        <div className="card service-jobs-details-card">
           <h2 style={{ margin: "0 0 1rem" }}>Job Details</h2>
           {!selected && !detailLoading && (
             <p className="text-muted" style={{ fontSize: "0.85rem" }}>
@@ -2193,137 +2236,268 @@ function ServiceJobsPage({ api }: { api: ReturnType<typeof makeApi> }) {
 function SalesOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 5;
+
+  const orderDateValue = (order: SalesOrder) =>
+    new Date(order.OrderDate).getTime();
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  const statusMeta = (status: string) => {
+    const key = status
+      .trim()
+      .toUpperCase()
+      .replace(/[-\s]+/g, "_");
+    const meta: Record<string, { label: string; color: string }> = {
+      DRAFT: { label: "Draft", color: "var(--text-muted)" },
+      CONFIRMED: { label: "Confirmed", color: "var(--blue)" },
+      SHIPPED: { label: "Shipped", color: "var(--amber)" },
+      COMPLETED: { label: "Completed", color: "var(--green)" },
+      CANCELLED: { label: "Cancelled", color: "var(--red)" },
+      RETURNED: { label: "Returned", color: "var(--red)" },
+      OUT_FOR_DELIVERY: { label: "Out for delivery", color: "var(--blue)" },
+      DELAYED: { label: "Delayed", color: "var(--amber)" },
+      PENDING: { label: "Pending", color: "var(--amber)" },
+    };
+
+    return meta[key] ?? { label: status, color: "var(--text-muted)" };
+  };
+
+  const loadOrders = async () => {
+    setLoading(true);
+    try {
+      const r = await api<SalesOrder[]>("/api/sales-orders");
+      setOrders(r.data ?? []);
+      setPage(1);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    api<SalesOrder[]>("/api/sales-orders")
-      .then((r) => setOrders(r.data ?? []))
-      .finally(() => setLoading(false));
+    void loadOrders();
   }, []);
 
-  const totals = useMemo(
-    () => ({
-      revenue: orders
-        .filter((o) =>
-          ["CONFIRMED", "SHIPPED", "COMPLETED"].includes(o.OrderStatus),
-        )
-        .reduce((s, o) => s + Number(o.LinesTotal), 0),
-      byStatus: orders.reduce(
-        (acc, o) => {
-          acc[o.OrderStatus] = (acc[o.OrderStatus] ?? 0) + 1;
-          return acc;
-        },
-        {} as Record<string, number>,
-      ),
-    }),
-    [orders],
-  );
+  const displayedOrders = useMemo(() => orders, [orders]);
+  const summary = useMemo(() => {
+    const recentOrders = orders.filter(
+      (order) => orderDateValue(order) >= sevenDaysAgo,
+    );
+    const revenue = orders
+      .filter((order) =>
+        ["CONFIRMED", "SHIPPED", "COMPLETED"].includes(
+          order.OrderStatus.toUpperCase(),
+        ),
+      )
+      .reduce((total, order) => total + Number(order.LinesTotal), 0);
 
-  const displayedOrders = useMemo(
-    () => (filter ? orders.filter((o) => o.OrderStatus === filter) : orders),
-    [orders, filter],
-  );
+    const countByStatus = (status: string) =>
+      orders.filter((order) => order.OrderStatus.toUpperCase() === status)
+        .length;
+
+    return {
+      totalOrders: orders.length,
+      revenue,
+      completedOrders: countByStatus("COMPLETED"),
+      pendingOrders: countByStatus("PENDING"),
+      cancelledOrders: countByStatus("CANCELLED"),
+      recentOrders: recentOrders.length,
+    };
+  }, [orders]);
+
+  const totalPages = Math.max(1, Math.ceil(displayedOrders.length / pageSize));
+  const pageOrders = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return displayedOrders.slice(start, start + pageSize);
+  }, [displayedOrders, page]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(Math.max(1, current), totalPages));
+  }, [totalPages]);
 
   return (
-    <div className="main">
-      <div className="page-header">
-        <h1>Sales Orders</h1>
+    <div className="main sales-orders-page">
+      <div className="sales-orders-page-header">
+        <h1>Sales Order</h1>
         <p>All customer orders from the database</p>
       </div>
 
-      <div className="card-grid" style={{ marginBottom: "1.25rem" }}>
-        <div
-          className="stat-card"
-          style={
-            {
-              "--stat-color": "var(--text-muted)",
-              cursor: "pointer",
-              opacity: filter === null ? 1 : 0.6,
-            } as React.CSSProperties
-          }
-          onClick={() => setFilter(null)}
-        >
-          <div className="stat-value">{orders.length}</div>
-          <div className="stat-label">All Orders</div>
+      <div className="sales-orders-summary card">
+        <div className="section-head sales-orders-summary-head">
+          <h2>Overall Sales Order</h2>
         </div>
-        {Object.entries(totals.byStatus).map(([status, count]) => (
-          <div
-            key={status}
-            className="stat-card"
-            style={
-              {
-                "--stat-color":
-                  status === "COMPLETED"
-                    ? "var(--green)"
-                    : status === "SHIPPED"
-                      ? "var(--amber)"
-                      : status === "CONFIRMED"
-                        ? "var(--blue)"
-                        : "var(--text-muted)",
-                cursor: "pointer",
-                opacity: filter === status ? 1 : filter ? 0.6 : 1,
-              } as React.CSSProperties
-            }
-            onClick={() => setFilter(status)}
-          >
-            <div className="stat-value">{count}</div>
-            <div className="stat-label">{status}</div>
+
+        <div className="sales-orders-summary-grid">
+          <div className="sales-orders-summary-tile sales-orders-summary-tile--wide">
+            <div className="sales-orders-summary-label sales-orders-summary-label--green">
+              Total Orders
+            </div>
+            <div className="sales-orders-summary-main-row">
+              <div className="sales-orders-summary-value">
+                {summary.totalOrders}
+              </div>
+              <div className="sales-orders-summary-revenue">
+                {fmt(summary.revenue)}
+              </div>
+            </div>
+            <div className="sales-orders-summary-foot">
+              Last 7 days <span>Revenue</span>
+            </div>
           </div>
-        ))}
+
+          <div className="sales-orders-summary-tile">
+            <div className="sales-orders-summary-label sales-orders-summary-label--green">
+              Completed Orders
+            </div>
+            <div className="sales-orders-summary-value">
+              {summary.completedOrders}
+            </div>
+            <div className="sales-orders-summary-foot">Last 7 days</div>
+          </div>
+
+          <div className="sales-orders-summary-tile">
+            <div className="sales-orders-summary-label sales-orders-summary-label--amber">
+              Pending Orders
+            </div>
+            <div className="sales-orders-summary-value">
+              {summary.pendingOrders}
+            </div>
+            <div className="sales-orders-summary-foot">Last 7 days</div>
+          </div>
+
+          <div className="sales-orders-summary-tile">
+            <div className="sales-orders-summary-label sales-orders-summary-label--red">
+              Cancelled Orders
+            </div>
+            <div className="sales-orders-summary-value">
+              {summary.cancelledOrders}
+            </div>
+            <div className="sales-orders-summary-foot">Last 7 days</div>
+          </div>
+        </div>
       </div>
 
-      <div className="card">
-        <div className="section-head">
-          <h2>All Orders</h2>
+      <div className="sales-orders-frame">
+        <div className="sales-orders-toolbar">
+          <div className="sales-orders-heading">
+            <h2>All Orders</h2>
+          </div>
+
           <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => {
-              setLoading(true);
-              api<SalesOrder[]>("/api/sales-orders")
-                .then((r) => setOrders(r.data ?? []))
-                .finally(() => setLoading(false));
-            }}
+            type="button"
+            className="sales-orders-refresh"
+            onClick={loadOrders}
+            disabled={loading}
           >
-            ↻ Refresh
+            <span
+              aria-hidden="true"
+              className={
+                loading
+                  ? "sales-orders-refresh-icon spin"
+                  : "sales-orders-refresh-icon"
+              }
+            >
+              ↺
+            </span>
+            Refresh
           </button>
         </div>
-        <div className="table-wrap">
-          <table>
+
+        <div className="sales-orders-table-shell">
+          <table className="sales-orders-table">
             <thead>
               <tr>
-                <th>Order #</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th>Location</th>
-                <th>Status</th>
-                <th>Total</th>
+                <th>ORDER#</th>
+                <th>DATE</th>
+                <th>CUSTOMER</th>
+                <th>LOCATION</th>
+                <th>STATUS</th>
+                <th>TOTAL</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="text-muted">
+                  <td colSpan={6} className="sales-orders-empty">
                     Loading…
                   </td>
                 </tr>
               )}
+
+              {!loading && displayedOrders.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="sales-orders-empty">
+                    No sales orders yet.
+                  </td>
+                </tr>
+              )}
+
               {!loading &&
-                displayedOrders.map((o) => (
-                  <tr key={o.SalesOrderId}>
-                    <td className="mono">{o.OrderNumber}</td>
-                    <td>{fmtDate(o.OrderDate)}</td>
-                    <td>{o.CustomerName}</td>
-                    <td>{o.FulfillmentLocation}</td>
-                    <td>
-                      <Badge status={o.OrderStatus} />
-                    </td>
-                    <td style={{ fontWeight: 600 }}>
-                      {fmt(Number(o.LinesTotal))}
-                    </td>
-                  </tr>
-                ))}
+                pageOrders.map((order) => {
+                  const status = statusMeta(order.OrderStatus);
+
+                  return (
+                    <tr key={order.SalesOrderId}>
+                      <td>
+                        <div className="sales-orders-order-number">
+                          {order.OrderNumber}
+                        </div>
+                      </td>
+                      <td className="sales-orders-date">
+                        {fmtDate(order.OrderDate)}
+                      </td>
+                      <td className="sales-orders-customer">
+                        {order.CustomerName || "—"}
+                      </td>
+                      <td className="sales-orders-location">
+                        {order.FulfillmentLocation || "—"}
+                      </td>
+                      <td>
+                        <span
+                          className="sales-orders-status"
+                          style={{ color: status.color }}
+                        >
+                          {status.label}
+                        </span>
+                      </td>
+                      <td className="sales-orders-total">
+                        {fmt(Number(order.LinesTotal))}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
+        </div>
+
+        <div className="sales-orders-footer">
+          <button
+            type="button"
+            className="sales-orders-pagination-btn"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={page <= 1 || loading || displayedOrders.length === 0}
+          >
+            Previous
+          </button>
+
+          <p className="sales-orders-details">
+            <span>Page </span>
+            <strong>{displayedOrders.length === 0 ? 0 : page}</strong>
+            <span> of {displayedOrders.length === 0 ? 0 : totalPages}</span>
+          </p>
+
+          <button
+            type="button"
+            className="sales-orders-pagination-btn"
+            onClick={() =>
+              setPage((current) => Math.min(totalPages, current + 1))
+            }
+            disabled={
+              page >= totalPages || loading || displayedOrders.length === 0
+            }
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>
@@ -2380,58 +2554,92 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
     [invoices],
   );
 
+  const statusMeta = (status: string) => {
+    const key = status.trim().toUpperCase();
+    const meta: Record<string, { label: string; color: string }> = {
+      PAID: { label: "Paid", color: "var(--green)" },
+      UNPAID: { label: "Unpaid", color: "var(--amber)" },
+      PARTIAL: { label: "Partial", color: "var(--blue)" },
+      OVERDUE: { label: "Overdue", color: "var(--red)" },
+      DRAFT: { label: "Draft", color: "var(--text-muted)" },
+      RETURNED: { label: "Returned", color: "var(--text-muted)" },
+      DELAYED: { label: "Delayed", color: "var(--amber)" },
+      CONFIRMED: { label: "Confirmed", color: "var(--blue)" },
+      SHIPPED: { label: "Shipped", color: "var(--green)" },
+    };
+
+    return meta[key] ?? { label: status, color: "var(--text-muted)" };
+  };
+
+  const summaryCards = [
+    {
+      key: null,
+      label: "Total Invoice",
+      value: invoices.length,
+      foot: "Last 7 days",
+      color: "var(--green)",
+    },
+    {
+      key: "PAID",
+      label: "Collected Revenue",
+      value: fmt(totals.paid),
+      foot: "Last 7 days",
+      color: "var(--green)",
+    },
+    {
+      key: "UNPAID",
+      label: "Pending Payments",
+      value: invoices.filter((i) => i.PaymentStatus === "UNPAID").length,
+      foot: "Last 7 days",
+      color: "var(--amber)",
+    },
+    {
+      key: "OVERDUE",
+      label: "Overdue Invoices",
+      value: invoices.filter((i) => i.PaymentStatus === "UNPAID").length,
+      foot: "Last 7 days",
+      color: "var(--red)",
+    },
+  ] as const;
+
   return (
-    <div className="main">
-      <div className="page-header">
+    <div className="main sales-orders-page invoices-page">
+      <div className="sales-orders-page-header invoices-page-header">
         <h1>Invoices</h1>
         <p>Billing records for all completed and shipped orders</p>
       </div>
 
-      <div className="card-grid" style={{ marginBottom: "1.25rem" }}>
-        <div
-          className="stat-card"
-          style={
-            {
-              "--stat-color": "var(--blue)",
-              cursor: "pointer",
-              opacity: filter === null ? 1 : 0.6,
-            } as React.CSSProperties
-          }
-          onClick={() => setFilter(null)}
-        >
-          <div className="stat-icon">🧾</div>
-          <div className="stat-value">{invoices.length}</div>
-          <div className="stat-label">All Invoices</div>
+      <div
+        className="card sales-orders-summary invoices-summary"
+        style={{ marginBottom: "1.25rem" }}
+      >
+        <div className="section-head sales-orders-summary-head">
+          <h2>Overall Invoices</h2>
         </div>
-        <div
-          className="stat-card"
-          style={
-            {
-              "--stat-color": "var(--green)",
-              cursor: "pointer",
-              opacity: filter === "PAID" ? 1 : filter ? 0.6 : 1,
-            } as React.CSSProperties
-          }
-          onClick={() => setFilter("PAID")}
-        >
-          <div className="stat-icon">✅</div>
-          <div className="stat-value">{fmt(totals.paid)}</div>
-          <div className="stat-label">Collected Revenue</div>
-        </div>
-        <div
-          className="stat-card"
-          style={
-            {
-              "--stat-color": "var(--amber)",
-              cursor: "pointer",
-              opacity: filter === "UNPAID" ? 1 : filter ? 0.6 : 1,
-            } as React.CSSProperties
-          }
-          onClick={() => setFilter("UNPAID")}
-        >
-          <div className="stat-icon">⏳</div>
-          <div className="stat-value">{fmt(totals.unpaid)}</div>
-          <div className="stat-label">Outstanding</div>
+        <div className="sales-orders-summary-grid invoices-summary-grid">
+          {summaryCards.map((card) => (
+            <button
+              key={card.label}
+              type="button"
+              className="sales-orders-summary-tile invoices-summary-tile"
+              style={
+                {
+                  "--summary-color": card.color,
+                  opacity:
+                    filter === card.key
+                      ? 1
+                      : filter && filter !== card.key
+                        ? 0.7
+                        : 1,
+                } as React.CSSProperties
+              }
+              onClick={() => setFilter(card.key)}
+            >
+              <div className="sales-orders-summary-label">{card.label}</div>
+              <div className="sales-orders-summary-value">{card.value}</div>
+              <div className="sales-orders-summary-foot">{card.foot}</div>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -2444,29 +2652,56 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
         </div>
       )}
 
-      <div className="card">
-        <div className="section-head">
-          <h2>All Invoices</h2>
+      <div className="sales-orders-frame invoices-frame">
+        <div className="sales-orders-toolbar invoices-toolbar">
+          <div className="sales-orders-heading">
+            <h2>All Invoices</h2>
+          </div>
+
+          <button
+            type="button"
+            className="sales-orders-refresh"
+            onClick={() => {
+              setLoading(true);
+              api<Invoice[]>("/api/invoices")
+                .then((r) => setInvoices(r.data ?? []))
+                .finally(() => setLoading(false));
+            }}
+            disabled={loading}
+          >
+            <span
+              aria-hidden="true"
+              className={
+                loading
+                  ? "sales-orders-refresh-icon spin"
+                  : "sales-orders-refresh-icon"
+              }
+            >
+              ↺
+            </span>
+            Refresh
+          </button>
         </div>
-        <div className="table-wrap">
-          <table>
+
+        <div className="sales-orders-table-shell">
+          <table className="sales-orders-table invoices-table">
             <thead>
               <tr>
-                <th>Invoice #</th>
-                <th>Date</th>
-                <th>Customer</th>
-                <th>Order</th>
-                <th>Sub-Total</th>
-                <th>VAT (12%)</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th>Action</th>
+                <th>INVOICE#</th>
+                <th>DATE</th>
+                <th>CUSTOMER</th>
+                <th>ORDER</th>
+                <th>SUB-TOTAL</th>
+                <th>VAT(12%)</th>
+                <th>TOTAL</th>
+                <th>STATUS</th>
+                <th>ACTION</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} className="text-muted">
+                  <td colSpan={9} className="sales-orders-empty">
                     Loading…
                   </td>
                 </tr>
@@ -2474,41 +2709,64 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
               {!loading &&
                 invoices
                   .filter((i) => (filter ? i.PaymentStatus === filter : true))
-                  .map((inv) => (
-                    <tr key={inv.InvoiceId}>
-                      <td className="mono">{inv.InvoiceNumber}</td>
-                      <td>{fmtDate(inv.InvoiceDate)}</td>
-                      <td>{inv.CustomerName}</td>
-                      <td className="mono">{inv.OrderNumber}</td>
-                      <td>{fmt(Number(inv.SubTotal))}</td>
-                      <td>{fmt(Number(inv.TaxAmount))}</td>
-                      <td style={{ fontWeight: 700 }}>
-                        {fmt(Number(inv.TotalAmount))}
-                      </td>
-                      <td>
-                        <Badge status={inv.PaymentStatus} />
-                      </td>
-                      <td>
-                        {inv.PaymentStatus === "UNPAID" ? (
-                          <button
-                            id={`btn-pay-${inv.InvoiceId}`}
-                            className="btn btn-green btn-sm"
-                            disabled={paying === inv.InvoiceId}
-                            onClick={() => markPaid(inv)}
-                          >
-                            {paying === inv.InvoiceId ? "…" : "✓ Mark Paid"}
-                          </button>
-                        ) : (
+                  .map((inv) => {
+                    const status = statusMeta(inv.PaymentStatus);
+
+                    return (
+                      <tr key={inv.InvoiceId}>
+                        <td>
+                          <div className="sales-orders-order-number">
+                            {inv.InvoiceNumber}
+                          </div>
+                        </td>
+                        <td className="sales-orders-date">
+                          {fmtDate(inv.InvoiceDate)}
+                        </td>
+                        <td className="sales-orders-customer">
+                          {inv.CustomerName}
+                        </td>
+                        <td className="sales-orders-location">
+                          {inv.OrderNumber}
+                        </td>
+                        <td className="sales-orders-date">
+                          {fmt(Number(inv.SubTotal))}
+                        </td>
+                        <td className="sales-orders-date">
+                          {fmt(Number(inv.TaxAmount))}
+                        </td>
+                        <td className="sales-orders-total">
+                          {fmt(Number(inv.TotalAmount))}
+                        </td>
+                        <td>
                           <span
-                            className="text-muted"
-                            style={{ fontSize: "0.78rem" }}
+                            className="sales-orders-status"
+                            style={{ color: status.color }}
                           >
-                            —
+                            {status.label}
                           </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td>
+                          {inv.PaymentStatus === "UNPAID" ? (
+                            <button
+                              id={`btn-pay-${inv.InvoiceId}`}
+                              className="btn btn-green btn-sm"
+                              disabled={paying === inv.InvoiceId}
+                              onClick={() => markPaid(inv)}
+                            >
+                              {paying === inv.InvoiceId ? "…" : "✓ Mark Paid"}
+                            </button>
+                          ) : (
+                            <span
+                              className="text-muted"
+                              style={{ fontSize: "0.78rem" }}
+                            >
+                              —
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
             </tbody>
           </table>
         </div>
@@ -2523,110 +2781,278 @@ function InvoicesPage({ api }: { api: ReturnType<typeof makeApi> }) {
 function PurchaseOrdersPage({ api }: { api: ReturnType<typeof makeApi> }) {
   const [pos, setPos] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<string | null>(null);
+  const pageSize = 5;
+
+  const statusMeta = (status: string) => {
+    const key = status
+      .trim()
+      .toUpperCase()
+      .replace(/[-\s]+/g, "_");
+    const meta: Record<string, { label: string; color: string }> = {
+      RECEIVED: { label: "Received", color: "var(--green)" },
+      PARTIAL: { label: "Partially Fulfilled", color: "var(--amber)" },
+      OPEN: { label: "Awaiting", color: "var(--red)" },
+      DELAYED: { label: "Delayed", color: "var(--amber)" },
+      CANCELLED: { label: "Cancelled", color: "var(--red)" },
+    };
+
+    return meta[key] ?? { label: status, color: "var(--text-muted)" };
+  };
+
+  const loadPos = async () => {
+    setLoading(true);
+    try {
+      const r = await api<PurchaseOrder[]>("/api/purchase-orders");
+      setPos(r.data ?? []);
+      setPage(1);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    api<PurchaseOrder[]>("/api/purchase-orders")
-      .then((r) => setPos(r.data ?? []))
-      .finally(() => setLoading(false));
+    void loadPos();
   }, []);
 
+  const filteredPos = useMemo(
+    () => pos.filter((po) => (filter ? po.Status === filter : true)),
+    [filter, pos],
+  );
+
+  const summary = useMemo(
+    () => ({
+      total: pos.length,
+      received: pos.filter((po) => po.Status === "RECEIVED").length,
+      partial: pos.filter((po) => po.Status === "PARTIAL").length,
+      open: pos.filter((po) => po.Status === "OPEN").length,
+    }),
+    [pos],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredPos.length / pageSize));
+  const pagePos = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredPos.slice(start, start + pageSize);
+  }, [filteredPos, page]);
+
+  useEffect(() => {
+    setPage((current) => Math.min(Math.max(1, current), totalPages));
+  }, [totalPages]);
+
   return (
-    <div className="main">
-      <div className="page-header">
+    <div className="main sales-orders-page">
+      <div className="sales-orders-page-header">
         <h1>Purchase Orders</h1>
         <p>Replenishment orders sent to suppliers</p>
       </div>
 
-      <div className="card-grid" style={{ marginBottom: "1.25rem" }}>
-        <div
-          className="stat-card"
-          style={
-            {
-              "--stat-color": "var(--text-muted)",
-              cursor: "pointer",
-              opacity: filter === null ? 1 : 0.6,
-            } as React.CSSProperties
-          }
-          onClick={() => setFilter(null)}
-        >
-          <div className="stat-value">{pos.length}</div>
-          <div className="stat-label">All POs</div>
+      <div
+        className="sales-orders-summary purchase-orders-summary card"
+        style={{ marginBottom: "1.25rem" }}
+      >
+        <div className="section-head sales-orders-summary-head">
+          <h2>Overall Purchase Orders</h2>
         </div>
-        {["RECEIVED", "PARTIAL", "OPEN"].map((status) => {
-          const filtered = pos.filter((p) => p.Status === status);
-          return (
-            <div
-              key={status}
-              className="stat-card"
-              style={
-                {
-                  "--stat-color":
-                    status === "RECEIVED"
-                      ? "var(--green)"
-                      : status === "PARTIAL"
-                        ? "var(--amber)"
-                        : "var(--blue)",
-                  cursor: "pointer",
-                  opacity: filter === status ? 1 : filter ? 0.6 : 1,
-                } as React.CSSProperties
-              }
-              onClick={() => setFilter(status)}
-            >
-              <div className="stat-value">{filtered.length}</div>
-              <div className="stat-label">{status} POs</div>
+
+        <div className="sales-orders-summary-grid purchase-orders-summary-grid">
+          <button
+            type="button"
+            className="sales-orders-summary-tile purchase-orders-summary-tile purchase-orders-summary-tile--wide"
+            style={
+              {
+                "--summary-color": "var(--green)",
+                opacity: filter === null ? 1 : 0.72,
+              } as React.CSSProperties
+            }
+            onClick={() => setFilter(null)}
+          >
+            <div className="sales-orders-summary-label sales-orders-summary-label--green">
+              Total POs
             </div>
-          );
-        })}
+            <div className="sales-orders-summary-main-row">
+              <div className="sales-orders-summary-value">{summary.total}</div>
+              <div className="sales-orders-summary-revenue">Overall</div>
+            </div>
+            <div className="sales-orders-summary-foot">
+              Total replenishment orders
+            </div>
+          </button>
+
+          <button
+            type="button"
+            className="sales-orders-summary-tile purchase-orders-summary-tile"
+            style={
+              {
+                "--summary-color": "var(--green)",
+                opacity: filter === "RECEIVED" ? 1 : filter ? 0.72 : 1,
+              } as React.CSSProperties
+            }
+            onClick={() => setFilter("RECEIVED")}
+          >
+            <div className="sales-orders-summary-label sales-orders-summary-label--green">
+              Received POs
+            </div>
+            <div className="sales-orders-summary-value">{summary.received}</div>
+            <div className="sales-orders-summary-foot">Completed</div>
+          </button>
+
+          <button
+            type="button"
+            className="sales-orders-summary-tile purchase-orders-summary-tile"
+            style={
+              {
+                "--summary-color": "var(--amber)",
+                opacity: filter === "PARTIAL" ? 1 : filter ? 0.72 : 1,
+              } as React.CSSProperties
+            }
+            onClick={() => setFilter("PARTIAL")}
+          >
+            <div className="sales-orders-summary-label sales-orders-summary-label--amber">
+              Partial POs
+            </div>
+            <div className="sales-orders-summary-value">{summary.partial}</div>
+            <div className="sales-orders-summary-foot">Partially Fulfilled</div>
+          </button>
+
+          <button
+            type="button"
+            className="sales-orders-summary-tile purchase-orders-summary-tile"
+            style={
+              {
+                "--summary-color": "var(--red)",
+                opacity: filter === "OPEN" ? 1 : filter ? 0.72 : 1,
+              } as React.CSSProperties
+            }
+            onClick={() => setFilter("OPEN")}
+          >
+            <div className="sales-orders-summary-label sales-orders-summary-label--red">
+              Open POs
+            </div>
+            <div className="sales-orders-summary-value">{summary.open}</div>
+            <div className="sales-orders-summary-foot">Awaiting</div>
+          </button>
+        </div>
       </div>
 
-      <div className="card">
-        <div className="section-head">
-          <h2>All Purchase Orders</h2>
+      <div className="sales-orders-frame">
+        <div className="sales-orders-toolbar">
+          <div className="sales-orders-heading">
+            <h2>All Purchase Orders</h2>
+          </div>
+
+          <button
+            type="button"
+            className="sales-orders-refresh"
+            onClick={loadPos}
+            disabled={loading}
+          >
+            <span
+              aria-hidden="true"
+              className={
+                loading
+                  ? "sales-orders-refresh-icon spin"
+                  : "sales-orders-refresh-icon"
+              }
+            >
+              ↺
+            </span>
+            Refresh
+          </button>
         </div>
-        <div className="table-wrap">
-          <table>
+
+        <div className="sales-orders-table-shell">
+          <table className="sales-orders-table">
             <thead>
               <tr>
-                <th>PO #</th>
-                <th>Date</th>
-                <th>Supplier</th>
-                <th>Ship To</th>
-                <th>Lines</th>
-                <th>Ordered Value</th>
-                <th>Status</th>
-                <th>Fulfilment</th>
+                <th>PO#</th>
+                <th>DATE</th>
+                <th>SUPPLIER</th>
+                <th>SHIP TO</th>
+                <th>LINES</th>
+                <th>ORDERED VALUE</th>
+                <th>STATUS</th>
+                <th>FULFILLMENT</th>
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={8} className="text-muted">
+                  <td colSpan={8} className="sales-orders-empty">
                     Loading…
                   </td>
                 </tr>
               )}
+              {!loading && filteredPos.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="sales-orders-empty">
+                    No purchase orders yet.
+                  </td>
+                </tr>
+              )}
               {!loading &&
-                pos
-                  .filter((p) => (filter ? p.Status === filter : true))
-                  .map((po) => (
+                pagePos.map((po) => {
+                  const status = statusMeta(po.Status);
+
+                  return (
                     <tr key={po.PurchaseOrderId}>
                       <td className="mono">{po.PoNumber}</td>
-                      <td>{fmtDate(po.OrderDate)}</td>
-                      <td>{po.Supplier}</td>
-                      <td>{po.ShipToLocation}</td>
+                      <td className="sales-orders-date">
+                        {fmtDate(po.OrderDate)}
+                      </td>
+                      <td className="sales-orders-customer">{po.Supplier}</td>
+                      <td className="sales-orders-location">
+                        {po.ShipToLocation}
+                      </td>
                       <td style={{ textAlign: "center" }}>{po.LineCount}</td>
-                      <td>{fmt(Number(po.TotalOrderedValue))}</td>
+                      <td className="sales-orders-total">
+                        {fmt(Number(po.TotalOrderedValue))}
+                      </td>
                       <td>
-                        <Badge status={po.Status} />
+                        <span
+                          className="sales-orders-status"
+                          style={{ color: status.color }}
+                        >
+                          {status.label}
+                        </span>
                       </td>
                       <td style={{ minWidth: 140 }}>
                         <ProgressBar pct={Number(po.FulfilmentPct)} />
                       </td>
                     </tr>
-                  ))}
+                  );
+                })}
             </tbody>
           </table>
+        </div>
+
+        <div className="sales-orders-footer">
+          <button
+            type="button"
+            className="sales-orders-pagination-btn"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={page <= 1 || loading || filteredPos.length === 0}
+          >
+            Previous
+          </button>
+
+          <p className="sales-orders-details">
+            <span>Page </span>
+            <strong>{filteredPos.length === 0 ? 0 : page}</strong>
+            <span> of {filteredPos.length === 0 ? 0 : totalPages}</span>
+          </p>
+
+          <button
+            type="button"
+            className="sales-orders-pagination-btn"
+            onClick={() =>
+              setPage((current) => Math.min(totalPages, current + 1))
+            }
+            disabled={page >= totalPages || loading || filteredPos.length === 0}
+          >
+            Next
+          </button>
         </div>
       </div>
     </div>
