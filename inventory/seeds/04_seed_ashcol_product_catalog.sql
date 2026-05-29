@@ -24,29 +24,45 @@ GO
 
 -- ============================================================
 -- STEP 1: Product Categories
+-- Using IF NOT EXISTS instead of MERGE to avoid SQL Server's
+-- known issue with correlated subqueries inside MERGE INSERT.
 -- ============================================================
-MERGE dbo.ProductCategories AS T
-USING (VALUES
-    -- Top-level categories
-    (N'Air Conditioners',          NULL),
-    (N'Aircon Parts & Accessories', NULL),
-    -- Sub-categories under Air Conditioners
-    (N'Window Type',               N'Air Conditioners'),
-    (N'Split Type',                N'Air Conditioners'),
-    (N'Floor Mounted',             N'Air Conditioners'),
-    (N'Portable',                  N'Air Conditioners'),
-    -- Sub-categories under Parts & Accessories
-    (N'Compressors',               N'Aircon Parts & Accessories'),
-    (N'Refrigerants',              N'Aircon Parts & Accessories'),
-    (N'Installation Materials',    N'Aircon Parts & Accessories')
-) AS S(Name, ParentName)
-ON T.Name = S.Name
-WHEN NOT MATCHED THEN
-    INSERT (Name, ParentCategoryId)
-    VALUES (
-        S.Name,
-        (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = S.ParentName)
-    );
+
+-- Resync identity counters in case prior partial runs left them out of step
+DBCC CHECKIDENT ('dbo.ProductCategories', RESEED) WITH NO_INFOMSGS;
+DBCC CHECKIDENT ('dbo.Suppliers', RESEED) WITH NO_INFOMSGS;
+DBCC CHECKIDENT ('dbo.Products', RESEED) WITH NO_INFOMSGS;
+GO
+
+-- Top-level categories first
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Air Conditioners')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId) VALUES (N'Air Conditioners', NULL);
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Aircon Parts & Accessories')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId) VALUES (N'Aircon Parts & Accessories', NULL);
+GO
+
+-- Sub-categories (parents must exist first)
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Window Type')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Window Type', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Air Conditioners'));
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Split Type')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Split Type', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Air Conditioners'));
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Floor Mounted')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Floor Mounted', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Air Conditioners'));
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Portable')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Portable', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Air Conditioners'));
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Compressors')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Compressors', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Aircon Parts & Accessories'));
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Refrigerants')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Refrigerants', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Aircon Parts & Accessories'));
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Installation Materials')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId)
+    VALUES (N'Installation Materials', (SELECT CategoryId FROM dbo.ProductCategories WHERE Name = N'Aircon Parts & Accessories'));
 GO
 
 PRINT N'[seed] Categories upserted.';

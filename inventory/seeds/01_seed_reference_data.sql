@@ -40,14 +40,19 @@ IF @AdminId IS NOT NULL AND @RAdmin IS NOT NULL
     INSERT INTO dbo.UserRoles (UserId, RoleId) VALUES (@AdminId, @RAdmin);
 GO
 
-MERGE dbo.ProductCategories AS T
-USING (VALUES
-    (N'HVAC Parts', NULL),
-    (N'Refrigerants', NULL),
-    (N'Consumables', NULL)
-) AS S(Name, ParentCategoryId)
-ON T.Name = S.Name
-WHEN NOT MATCHED THEN INSERT (Name, ParentCategoryId) VALUES (S.Name, S.ParentCategoryId);
+-- Resync identity counters in case prior partial runs left them out of step
+DBCC CHECKIDENT ('dbo.ProductCategories', RESEED) WITH NO_INFOMSGS;
+DBCC CHECKIDENT ('dbo.Suppliers', RESEED) WITH NO_INFOMSGS;
+DBCC CHECKIDENT ('dbo.Products', RESEED) WITH NO_INFOMSGS;
+DBCC CHECKIDENT ('dbo.Locations', RESEED) WITH NO_INFOMSGS;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'HVAC Parts')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId) VALUES (N'HVAC Parts', NULL);
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Refrigerants')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId) VALUES (N'Refrigerants', NULL);
+IF NOT EXISTS (SELECT 1 FROM dbo.ProductCategories WHERE Name = N'Consumables')
+    INSERT INTO dbo.ProductCategories (Name, ParentCategoryId) VALUES (N'Consumables', NULL);
 GO
 
 MERGE dbo.Suppliers AS T
