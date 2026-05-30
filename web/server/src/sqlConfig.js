@@ -102,8 +102,10 @@ export function buildSqlConfig() {
       connectionTimeout,
       requestTimeout: connectionTimeout,
       options,
-      driver: 'msnodesqlv8',
-      connectionString: buildMsv8OdbcConnectionString({
+    }
+    if (useWindows) {
+      config.driver = 'msnodesqlv8'
+      config.connectionString = buildMsv8OdbcConnectionString({
         serverSpec: fullServer,
         database,
         useWindows,
@@ -111,7 +113,7 @@ export function buildSqlConfig() {
         password: process.env.SQL_PASSWORD,
         encrypt,
         trustServerCertificate,
-      }),
+      })
     }
     if (!useWindows) {
       config.user = process.env.SQL_USER
@@ -184,24 +186,26 @@ export function buildSqlConfig() {
     delete config.options.instanceName
   }
 
-  config.driver = 'msnodesqlv8'
+  if (useWindows) {
+    config.driver = 'msnodesqlv8'
 
-  const hasTcpPort = port !== undefined && !Number.isNaN(port) && port > 0
-  const serverSpec = hasTcpPort
-    ? `${serverHost},${port}`
-    : config.options.instanceName
-      ? `${serverHost}\\${config.options.instanceName}`
-      : serverHost
+    const hasTcpPort = port !== undefined && !Number.isNaN(port) && port > 0
+    const serverSpec = hasTcpPort
+      ? `${serverHost},${port}`
+      : config.options.instanceName
+        ? `${serverHost}\\${config.options.instanceName}`
+        : serverHost
 
-  config.connectionString = buildMsv8OdbcConnectionString({
-    serverSpec,
-    database,
-    useWindows,
-    user: process.env.SQL_USER,
-    password: process.env.SQL_PASSWORD,
-    encrypt,
-    trustServerCertificate,
-  })
+    config.connectionString = buildMsv8OdbcConnectionString({
+      serverSpec,
+      database,
+      useWindows,
+      user: process.env.SQL_USER,
+      password: process.env.SQL_PASSWORD,
+      encrypt,
+      trustServerCertificate,
+    })
+  }
 
   if (!useWindows) {
     config.user = process.env.SQL_USER
