@@ -84,6 +84,7 @@ Other listed systems (hospital, university, e-commerce, etc.) are **out of scope
 | **ERD** | [`03-entity-relationship-diagram.md`](03-entity-relationship-diagram.md) |
 | **Database schema design** | [`04-database-schema-design.md`](04-database-schema-design.md) |
 | **Testing procedures and results** | [`05-testing-procedures.md`](05-testing-procedures.md) — paste **your** run outputs/screenshots there. |
+| **Transaction flows & queries** | [`08-transaction-flows-and-queries.md`](08-transaction-flows-and-queries.md) |
 
 ---
 
