@@ -197,10 +197,19 @@ WHEN NOT MATCHED THEN
 -- 🔌 7. Installation Materials
 MERGE dbo.Products AS T
 USING (VALUES
-    (N'IM-001', N'Copper Tube (per meter)',                            @CatIM, N'MTR', 262.5000,   350.0000,  20, @SupAS,  N'Copper tubing for refrigerant lines, sold per meter'),
-    (N'IM-002', N'Insulation Foam',                                    @CatIM, N'PCS', 90.0000,    120.0000,  20, @SupAS,  N'Pipe insulation foam sleeve'),
-    (N'IM-003', N'Drain Hose',                                         @CatIM, N'PCS', 112.5000,   150.0000,  15, @SupAS,  N'Flexible drain hose for AC condensate'),
-    (N'IM-004', N'Circuit Breaker',                                    @CatIM, N'PCS', 675.0000,   900.0000,  10, @SupAS,  N'Dedicated circuit breaker for AC installation')
+    (N'SD-1471', N'Soft Drawn Copper Tube 1/4" x 0.71mm / 15M',       @CatIM, N'ROLL', 1274.0000,  1699.0000, 10, @SupAS, N'Soft drawn copper tube 1/4" x 0.028" x 15M (standard)'),
+    (N'SD-3871', N'Soft Drawn Copper Tube 3/8" x 0.71mm / 15M',       @CatIM, N'ROLL', 1986.0000,  2648.0000, 10, @SupAS, N'Soft drawn copper tube 3/8" x 0.028" x 15M (standard)'),
+    (N'SD-1271', N'Soft Drawn Copper Tube 1/2" x 0.71mm / 15M',       @CatIM, N'ROLL', 2727.0000,  3636.0000, 10, @SupAS, N'Soft drawn copper tube 1/2" x 0.028" x 15M (standard)'),
+    (N'SD-5871', N'Soft Drawn Copper Tube 5/8" x 0.71mm / 15M',       @CatIM, N'ROLL', 3410.0000,  4547.0000,  5, @SupAS, N'Soft drawn copper tube 5/8" x 0.028" x 15M (standard)'),
+    (N'CB-202P', N'Circuit Breaker 20amps 2-pole',                     @CatIM, N'PCS',  390.0000,   520.0000,  15, @SupAS, N'Circuit breaker 20amps / 2-pole'),
+    (N'CB-302P', N'Circuit Breaker 30amps 2-pole',                     @CatIM, N'PCS',  390.0000,   520.0000,  10, @SupAS, N'Circuit breaker 30amps / 2-pole'),
+    (N'CB-402P', N'Circuit Breaker 40amps 2-pole',                     @CatIM, N'PCS',  390.0000,   520.0000,  10, @SupAS, N'Circuit breaker 40amps / 2-pole'),
+    (N'BB-0001', N'Box Breaker NEMA 3R Metal',                         @CatIM, N'PCS',  225.0000,   300.0000,  10, @SupAS, N'Box breaker NEMA 3R metal enclosure'),
+    (N'FH-0001', N'Flexible Hose Orange 1/2" 50meters',                @CatIM, N'ROLL', 259.0000,   345.0000,  10, @SupAS, N'Flexible hose orange 1/2" 50 meters'),
+    (N'EW-014O', N'Electrical Wire THHN Powerflex #14 / 2.0mm 150M',   @CatIM, N'ROLL', 1965.0000,  2620.0000,  5, @SupAS, N'Electrical wire THHN Powerflex #14 / 2.0mm 150M'),
+    (N'EW-012O', N'Electrical Wire THHN Powerflex #12 / 3.5mm 150M',   @CatIM, N'ROLL', 2888.0000,  3850.0000,  5, @SupAS, N'Electrical wire THHN Powerflex #12 / 3.5mm 150M'),
+    (N'PT-0001', N'PE Tape 4" x 45meters WHITE',                       @CatIM, N'ROLL',   71.0000,    94.0000, 30, @SupAS, N'PE tape 4" x 45 meters white'),
+    (N'AT-0001', N'Insulation Foam Tape AEROTAPE',                     @CatIM, N'ROLL',  259.0000,   345.0000, 20, @SupAS, N'1 ins''n foam tape AEROTAPE')
 ) AS S(Sku, Name, CategoryId, UnitOfMeasure, UnitCost, ListPrice, ReorderLevel, SupplierId, Description)
 ON T.Sku = S.Sku
 WHEN NOT MATCHED THEN
